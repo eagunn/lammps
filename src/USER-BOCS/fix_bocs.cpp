@@ -56,9 +56,14 @@ static const char cite_user_bocs_package[] =
 #define DELTAFLIP 0.1
 #define TILTMAX 1.5
 
+const int MAX_F_TABLE_LINE_LENGTH = 199;
+
 enum{NOBIAS,BIAS};
 enum{NONE,XYZ,XY,YZ,XZ};
 enum{ISO,ANISO,TRICLINIC};
+
+// TODO: AG proposes enumerating the p_basis_type magic values to improve readability:
+//enum{BASIS_ANALYTIC, BASIS_LINEAR_SPLINE, BASIS_CUBIC_SPLINE};
 
 /* ----------------------------------------------------------------------
    NVT,NPH,NPT integrators for improved Nose-Hoover equations of motion
@@ -629,12 +634,14 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
   float f1, f2;
   int test_sscanf;
   double **data = (double **) calloc(N_columns,sizeof(double *));
-  char * line = (char *) calloc(200,sizeof(char));
+  char line[MAX_F_TABLE_LINE_LENGTH+1];
 
+  // Count the number of lines in the input data file
+  // And allocate the data array that will hold the data from the file
   fpi = fopen(filename,"r");
   if (fpi)
   {
-    while (fgets(line,199,fpi)) { ++n_entries; }
+    while (fgets(line,MAX_F_TABLE_LINE_LENGTH,fpi)) { ++n_entries; }
     fclose(fpi);
     for (i = 0; i < N_columns; ++i)
     {
@@ -646,10 +653,11 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
     error->all(FLERR,errmsg);
   }
 
+  // Read the data from the file
   n_entries = 0;
   fpi = fopen(filename,"r");
   if (fpi) {
-    while( fgets(line,199,fpi)) {
+    while( fgets(line,MAX_F_TABLE_LINE_LENGTH,fpi)) {
       ++n_entries;
       test_sscanf = sscanf(line," %f , %f ",&f1, &f2);
       if (test_sscanf == 2)
@@ -692,12 +700,16 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
   }
   else
   {
-    char * errmsg = (char *) calloc(70,sizeof(char));
+    char errmsg[128];
     sprintf(errmsg,"ERROR: invalid p_basis_type value "
                                     "of %d in read_F_table",p_basis_type);
     error->all(FLERR,errmsg);
   }
   // cleanup
+  // TODO: Axel applied this memory cleanup at some point after
+  // main development. I suspect it does the right thing
+  // for p_basis_type analytic or linear but not for cubic
+  // Need to verify that and fix
   for (i = 0; i < N_columns; ++i) {
     free(data[i]);
   }
@@ -707,15 +719,19 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
 
 void FixBocs::build_cubic_splines( double **data )
 {
+  char msg[128];
+  sprintf(msg, "in build_cubic_splines, spline_length = %d", spline_length);
+  error->message(FLERR, msg);
+
   double *a, *b, *d, *h, *alpha, *c, *l, *mu, *z;
   int n = spline_length;
   double alpha_i;
   a = (double *) calloc(n,sizeof(double));
   b = (double *) calloc(n+1,sizeof(double));
+  c = (double *) calloc(n+1,sizeof(double));
   d = (double *) calloc(n+1,sizeof(double));
   h = (double *) calloc(n,sizeof(double));
   alpha = (double *) calloc(n,sizeof(double));
-  c = (double *) calloc(n+1,sizeof(double));
   l = (double *) calloc(n,sizeof(double));
   mu = (double *) calloc(n,sizeof(double));
   z = (double *) calloc(n,sizeof(double));
@@ -752,8 +768,8 @@ void FixBocs::build_cubic_splines( double **data )
   mu[n-1] = 0.0;
   z[n-1] = 0.0;
 
-  c[n] = 0.0;
   b[n] = 0.0;
+  c[n] = 0.0;
   d[n] = 0.0;
 
   for(int j=n-1; j>=0; j--)
