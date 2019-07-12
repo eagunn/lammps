@@ -55,8 +55,6 @@ static const char cite_user_bocs_package[] =
 #define DELTAFLIP 0.1
 #define TILTMAX 1.5
 
-const int MAX_F_TABLE_LINE_LENGTH = 199;
-
 enum{NOBIAS,BIAS};
 enum{NONE,XYZ,XY,YZ,XZ};
 enum{ISO,ANISO,TRICLINIC};
@@ -188,7 +186,7 @@ FixBocs::FixBocs(LAMMPS *lmp, int narg, char **arg) :
           error->all(FLERR,"Illegal fix bocs command. basis type analytic"
                     " must be followed by: avg_vol n_mol n_pmatch_coeff");
         }
-        p_basis_type = 0;
+        p_basis_type = BASIS_ANALYTIC;
         vavg = force->numeric(FLERR,arg[iarg+1]);
         N_mol = force->inumeric(FLERR,arg[iarg+2]);
         N_p_match = force->inumeric(FLERR,arg[iarg+3]);
@@ -202,13 +200,13 @@ FixBocs::FixBocs(LAMMPS *lmp, int narg, char **arg) :
       } else if (strcmp(arg[iarg], "linear_spline") == 0  ) {
         if (iarg+2 > narg) error->all(FLERR,"Illegal fix bocs command. "
                               "Supply a file name after linear_spline.");
-        p_basis_type = 1;
+        p_basis_type = BASIS_LINEAR_SPLINE;
         spline_length = read_F_table( arg[iarg+1], p_basis_type );
         iarg += 2;
       } else if (strcmp(arg[iarg], "cubic_spline") == 0 ) {
         if (iarg+2 > narg) error->all(FLERR,"Illegal fix bocs command. "
                                "Supply a file name after cubic_spline.");
-        p_basis_type = 2;
+        p_basis_type = BASIS_CUBIC_SPLINE;
         spline_length = read_F_table( arg[iarg+1], p_basis_type );
         iarg += 2;
       }  else {
@@ -632,27 +630,44 @@ void FixBocs::init()
 // NJD MRD 2 functions
 int FixBocs::read_F_table( char *filename, int p_basis_type )
 {
-  FILE *fpi;
-  int N_columns = 2, n_entries = 0, i;
+  // NB: Keep your messages (error, warning, message) shorter than 255 chars
+  char message[MAX_MESSAGE_LENGTH];
+  char badDataMsg[MAX_MESSAGE_LENGTH];
+
+  int N_columns = 2, i;
   float f1, f2;
   int test_sscanf;
   double **data = (double **) calloc(N_columns,sizeof(double *));
-  char line[MAX_F_TABLE_LINE_LENGTH+1];
 
-  // Count the number of lines in the input data file
-  // And allocate the data array that will hold the data from the file
-  fpi = fopen(filename,"r");
+  // Data file lines hold two floating point numbers.
+  // Line length we allocate should be long enough without
+  // being too long.
+  // 128 seems safe for a line we expect to be < 30 chars.
+  const int MAX_F_TABLE_LINE_LENGTH = 128;
+  char line[MAX_F_TABLE_LINE_LENGTH];
+  bool badInput = false;
+  int numEntries = 0;
+  FILE *fpi = fopen(filename,"r");
   if (fpi)
   {
-    while (fgets(line,MAX_F_TABLE_LINE_LENGTH,fpi)) { ++n_entries; }
+    // Count the number of lines/entries in the input data file
+    // And allocate memory for the data array that will hold
+    // all the data we read from the file
 
+    // Note: fgets will read no more than (specified length - 1) chars, then
+    // adds the terminating null. But for our data file, we expect the read
+    // to terminate at the newline character, well before the specified length.
+    while (fgets(line, MAX_F_TABLE_LINE_LENGTH, fpi)) {++numEntries;}
     for (i = 0; i < N_columns; ++i)
     {
-      data[i] = (double *) calloc(n_entries,sizeof(double));
+      data[i] = (double *) calloc(numEntries,sizeof(double));
     }
 
-    // Don't need to re-open the file to make a second pass through it
-    // simply rewind to beginning
+    // Don't need to close/re-open the file to make a second pass through it
+    // simply rewind to beginning.
+    // We do this not for performance but for simplicity and to avoid
+    // the slight overhead/risk in ceding the file back to the file
+    // system while we are still working with it.
     rewind(fpi);
 
     double stdVolumeInterval = 0.0;
@@ -661,8 +676,7 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
     // The literature indicates getting this value right in the
     // general case can be pretty complicated. I don't think it
     // needs to be complicated here, though. At least based on the
-    // sample data I've seen where the volume values are fairly
-    // large.
+    // sample data I've seen where the volume values are fairly large.
     const double volumeIntervalTolerance = 0.001;
     n_entries = 0;
     while( fgets(line,199,fpi)) {
@@ -714,33 +728,62 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
     error->all(FLERR,errmsg);
   }
 
-  if (p_basis_type == 1)
+  // Read the data from the file into our data array
+  int idx = 0;  // this value keeps track of the entries that pass validation
+  int lineNum = 0;  // this value is only for  message
+  //fpi = fopen(filename,"r");
+  rewind(fpi);
+  //if (fpi) {
+    while( fgets(line,MAX_F_TABLE_LINE_LENGTH,fpi)) {
+      lineNum++;
+      test_sscanf = sscanf(line," %f , %f ",&f1, &f2);
+      if (test_sscanf == 2)
+      {
+        data[0][idx] = (double) f1;
+        data[1][idx] = (double) f2;
+        // Only increment the index if the line passes validation
+        idx++;
+      }
+      else
+      {
+        snprintf(message,messageLength,"WARNING: did not find 2 comma separated values in "
+                           "line %d of file %s\n\tline: %s",lineNum,filename,line);
+        error->warning(FLERR, message);
+      }
+    }
+  fclose(fpi);
+
+  int numValidEntries = idx;
+  snprintf(message,messageLength,"INFO: Read %d lines from file, found %d valid lines",
+           lineNum, numValidEntries);
+  error->message(FLERR, message);
+
+  if (p_basis_type == BASIS_LINEAR_SPLINE)
   {
     splines = (double **) calloc(2,sizeof(double *));
-    splines[0] = (double *) calloc(n_entries,sizeof(double));
-    splines[1] = (double *) calloc(n_entries,sizeof(double));
+    splines[0] = (double *) calloc(numValidEntries,sizeof(double));
+    splines[1] = (double *) calloc(numValidEntries,sizeof(double));
     int idxa, idxb;
     for (idxa = 0; idxa < 2; ++idxa)
     {
-      for (idxb = 0; idxb < n_entries; ++idxb)
+      for (idxb = 0; idxb < numValidEntries; ++idxb)
       {
         splines[idxa][idxb] = data[idxa][idxb];
       }
     }
   }
-  else if (p_basis_type == 2)
+  else if (p_basis_type == BASIS_CUBIC_SPLINE)
   {
-    spline_length = n_entries;
+    spline_length = numValidEntries;
     build_cubic_splines(data);
-    n_entries -= 1;
+    //n_entries -= 1;
   }
   else
   {
-    char errmsg[MAX_MESSAGE_LENGTH];
-    snprintf(errmsg, MAX_MESSAGE_LENGTH,
+    snprintf(message,messageLength,
              "ERROR: invalid p_basis_type value of %d in read_F_table",
              p_basis_type);
-    error->all(FLERR,errmsg);
+    error->all(FLERR,message);
   }
   // cleanup
   // TODO: Axel applied this memory cleanup at some point after
@@ -751,13 +794,13 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
     free(data[i]);
   }
   free(data);
-  return n_entries;
+  return numValidEntries;
 }
 
 void FixBocs::build_cubic_splines( double **data )
 {
   char msg[128];
-  sprintf(msg, "in build_cubic_splines, spline_length = %d", spline_length);
+  sprintf(msg, "INFO: in build_cubic_splines, spline_length = %d", spline_length);
   error->message(FLERR, msg);
 
   double *a, *b, *d, *h, *alpha, *c, *l, *mu, *z;
