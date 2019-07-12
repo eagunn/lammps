@@ -232,12 +232,12 @@ double ComputePressureBocs::get_cg_p_corr(double ** grid, int basis_type,
   int i = find_index(grid[0],vCG);
   double correction, deltax = vCG - grid[0][i];
 
-  if (basis_type == 1)
+  if (basis_type == BASIS_LINEAR_SPLINE)
   {
     correction = grid[1][i] + (deltax) *
           ( grid[1][i+1] - grid[1][i] ) / ( grid[0][i+1] - grid[0][i] );
   }
-  else if (basis_type == 2)
+  else if (basis_type == BASIS_CUBIC_SPLINE)
   {
     correction = grid[1][i] + (grid[2][i] * deltax) +
             (grid[3][i] * pow(deltax,2)) + (grid[4][i] * pow(deltax,3));
@@ -256,7 +256,7 @@ double ComputePressureBocs::get_cg_p_corr(double ** grid, int basis_type,
 void ComputePressureBocs::send_cg_info(int basis_type, int sent_N_basis,
                 double *sent_phi_coeff, int sent_N_mol, double sent_vavg)
 {
-  if (basis_type == 0) { p_basis_type = 0; }
+  if (basis_type == BASIS_ANALYTIC) { p_basis_type = BASIS_ANALYTIC; }
   else
   {
     error->all(FLERR,"Incorrect basis type passed to ComputePressureBocs\n");
@@ -280,8 +280,8 @@ void ComputePressureBocs::send_cg_info(int basis_type, int sent_N_basis,
 void ComputePressureBocs::send_cg_info(int basis_type,
                                          double ** in_splines, int gridsize)
 {
-  if (basis_type == 1) { p_basis_type = 1; }
-  else if (basis_type == 2) { p_basis_type = 2; }
+  if (basis_type == BASIS_LINEAR_SPLINE) { p_basis_type = BASIS_LINEAR_SPLINE; }
+  else if (basis_type == BASIS_CUBIC_SPLINE) { p_basis_type = BASIS_CUBIC_SPLINE; }
   else
   {
     error->all(FLERR,"Incorrect basis type passed to ComputePressureBocs\n");
@@ -317,11 +317,11 @@ double ComputePressureBocs::compute_scalar()
     volume = (domain->xprd * domain->yprd * domain->zprd);
 
     /* MRD NJD if block */
-    if ( p_basis_type == 0 )
+    if ( p_basis_type == BASIS_ANALYTIC )
     {
       correction = get_cg_p_corr(N_basis,phi_coeff,N_mol,vavg,volume);
     }
-    else if ( p_basis_type == 1 || p_basis_type == 2 )
+    else if ( p_basis_type == BASIS_LINEAR_SPLINE || p_basis_type == BASIS_CUBIC_SPLINE )
     {
       correction = get_cg_p_corr(splines, p_basis_type, volume);
     }
