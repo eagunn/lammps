@@ -17,6 +17,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <cmath>
+#include <vector>
 #include "fix_bocs.h"
 #include "math_extra.h"
 #include "atom.h"
@@ -60,6 +61,15 @@ static const char cite_user_bocs_package[] =
 enum{NOBIAS,BIAS};
 enum{NONE,XYZ,XY,YZ,XZ};
 enum{ISO,ANISO,TRICLINIC};
+
+struct PressureCorrectionInput {
+  double volume;
+  double pressureCorrection;
+  PressureCorrectionInput() {
+    volume = 0.0;
+    pressureCorrection = 0.0;
+  }
+};
 
 
 /* ----------------------------------------------------------------------
@@ -641,6 +651,7 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
   // 128 seems safe for a line we expect to be < 30 chars.
   const int MAX_F_TABLE_LINE_LENGTH = 128;
   char line[MAX_F_TABLE_LINE_LENGTH];
+  /*
 
   // Count the number of lines/entries in the input data file
   // And allocate memory for the data array that will hold
@@ -670,7 +681,28 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
     snprintf(message,messageLength,"Unable to open file: %s\n",filename);
     error->all(FLERR,message);
   }
+  */
+  // Read all the lines from the input file into a simple vector
+  // NB: LAMMPS coding guidelines prefer cstdio so we are intentionally
+  // foregoing a vector of strings read in with getline. .
+  error->message(FLERR, "INFO: About to read data file");
+  std::vector<char *> inputLines;
+  FILE *fpi = fopen(filename, "r");
+  if (fpi) {
+    while (fgets(line, MAX_F_TABLE_LINE_LENGTH, fpi)) {
+      inputLines.push_back(line);
+    }
+  } else {
+    snprintf(message,messageLength,"Unable to open file: %s\n",filename);
+    error->all(FLERR,message);
+  }
+  snprintf(message,messageLength,"INFO: Read %d lines from file",
+           (int)inputLines.size());
+  error->message(FLERR, message);
 
+
+
+  /*
   // Read the data from the file into our data array
   int idx = 0;  // this value keeps track of the entries that pass validation
   int lineNum = 0;  // this value is only for  message
@@ -700,10 +732,53 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
 //    error->all(FLERR,errmsg);
 //  }
   fclose(fpi);
+   */
+
+  error->message(FLERR, "INFO: About to allocate memory for data[]");
+
+  // Allocate memory for the data values we expect to get from the file
+  for (i = 0; i < N_columns; ++i)
+  {
+    data[i] = (double *) calloc((int)inputLines.size(),sizeof(double));
+  }
+  error->message(FLERR, "INFO: Memory allocated for two columns of data");
+
+  // Since we know the size of the data, we can allocate memory for the
+  // vector all at once. Tends to be a bit more efficient when/if
+  // you have the size available.
+  std::vector<PressureCorrectionInput> dataEx(inputLines.size());
+  error->message(FLERR, "INFO: About to parse lines");
+  // Parse the lines into data values, validating as we go
+  int lineNum = 0;
+  int idx = 0;
+  PressureCorrectionInput pci;
+  std::vector<char*>::const_iterator iter;
+  for (iter = inputLines.begin(); iter != inputLines.end(); ++iter) {
+    lineNum++;  // increment the line number every line
+    test_sscanf = sscanf(inputLines[i]," %f , %f ",&f1, &f2);
+    if (test_sscanf == 2)
+    {
+      data[0][idx] = (double) f1;
+      data[1][idx] = (double) f2;
+      //pci.volume = (double) f1;
+      //pci.pressureCorrection = (double) f2;
+      //dataEx.push_back(pci);
+      idx++; // Only increment the data index after we have a good value
+    }
+    else
+    {
+      snprintf(message, messageLength, "WARNING: did not find 2 comma separated values in "
+              "line %d of file %s\n\tline: %s", lineNum, filename, inputLines[i]);
+      error->warning(FLERR, message);
+    }
+  }
 
   int numValidEntries = idx;
   snprintf(message,messageLength,"INFO: Read %d lines from file, found %d valid lines",
            lineNum, numValidEntries);
+  error->message(FLERR, message);
+
+  snprintf(message,messageLength,"INFO: dataEx has %d entries", (int)dataEx.size());
   error->message(FLERR, message);
 
   if (p_basis_type == BASIS_LINEAR_SPLINE)
@@ -712,6 +787,16 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
     splines[0] = (double *) calloc(numValidEntries,sizeof(double));
     splines[1] = (double *) calloc(numValidEntries,sizeof(double));
     int idxa, idxb;
+    /*
+    //for (idxa = 0; idxa < 2; ++idxa)
+    //{
+      for (idxb = 0; idxb < numValidEntries; ++idxb)
+      {
+        splines[0][idxb] = dataEx[idxb].volume;
+        splines[1][idxb] = dataEx[idxb].pressureCorrection;
+      }
+    //}
+     */
     for (idxa = 0; idxa < 2; ++idxa)
     {
       for (idxb = 0; idxb < numValidEntries; ++idxb)
@@ -719,6 +804,7 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
         splines[idxa][idxb] = data[idxa][idxb];
       }
     }
+
   }
   else if (p_basis_type == BASIS_CUBIC_SPLINE)
   {
