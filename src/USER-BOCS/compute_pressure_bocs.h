@@ -29,6 +29,8 @@ ComputeStyle(PRESSURE/BOCS,ComputePressureBocs)
 namespace LAMMPS_NS {
   // Enumerate the p_basis_type magic values to improve readability:
   enum{BASIS_ANALYTIC, BASIS_LINEAR_SPLINE, BASIS_CUBIC_SPLINE};
+  // Enumerate the data file column names to improve readability
+  enum{VOLUME, PRESSURE_CORRECTION};
 
   // ComputePressure -> ComputePressureBocs MRD NJD
 class ComputePressureBocs : public Compute {

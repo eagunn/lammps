@@ -29,7 +29,7 @@ FixStyle(bocs,FixBocs)
 
 namespace LAMMPS_NS {
 
-class FixBocs : public Fix {
+  class FixBocs : public Fix {
  public:
   FixBocs(class LAMMPS *, int, char **); // MRD NJD
   virtual ~FixBocs(); // MRD NJD

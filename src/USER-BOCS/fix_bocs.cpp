@@ -62,6 +62,7 @@ enum{NOBIAS,BIAS};
 enum{NONE,XYZ,XY,YZ,XZ};
 enum{ISO,ANISO,TRICLINIC};
 
+// Simple struct to make the data-file input code more readable
 struct PressureCorrectionInput {
   double volume;
   double pressureCorrection;
@@ -71,6 +72,9 @@ struct PressureCorrectionInput {
   }
 };
 
+const int NUM_INPUT_DATA_COLUMNS = 2;     // columns in the pressure correction file
+const int NUM_LINEAR_SPLINE_COLUMNS = 2;  // linear spline columns passed to compute
+const int NUM_CUBIC_SPLINE_COLUMNS = 5;   // cubic spline columns passed to compute
 
 /* ----------------------------------------------------------------------
    NVT,NPH,NPT integrators for improved Nose-Hoover equations of motion
@@ -640,10 +644,8 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
   const int messageLength = 256;
   char message[messageLength];
 
-  int N_columns = 2, i;
   float f1, f2;
   int test_sscanf;
-  double **data = (double **) calloc(N_columns,sizeof(double *));
 
   // Data file lines hold two floating point numbers.
   // Line length we allocate should be long enough without
@@ -686,11 +688,11 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
   // NB: LAMMPS coding guidelines prefer cstdio so we are intentionally
   // foregoing a vector of strings read in with getline. .
   error->message(FLERR, "INFO: About to read data file");
-  std::vector<char *> inputLines;
+  std::vector<std::string> inputLines;
   FILE *fpi = fopen(filename, "r");
   if (fpi) {
     while (fgets(line, MAX_F_TABLE_LINE_LENGTH, fpi)) {
-      inputLines.push_back(line);
+      inputLines.push_back(std::string(line));
     }
   } else {
     snprintf(message,messageLength,"Unable to open file: %s\n",filename);
@@ -699,8 +701,12 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
   snprintf(message,messageLength,"INFO: Read %d lines from file",
            (int)inputLines.size());
   error->message(FLERR, message);
-
-
+  snprintf(message,messageLength,"INFO: first line is: %s",
+           inputLines[0].c_str());
+  error->message(FLERR, message);
+  snprintf(message,messageLength,"INFO: last line is: %s",
+           inputLines[inputLines.size()-1].c_str());
+  error->message(FLERR, message);
 
   /*
   // Read the data from the file into our data array
@@ -736,44 +742,52 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
 
   error->message(FLERR, "INFO: About to allocate memory for data[]");
 
-  // Allocate memory for the data values we expect to get from the file
-  for (i = 0; i < N_columns; ++i)
+  // Allocate memory for the two-d data array
+  double **data = (double **) calloc(NUM_INPUT_DATA_COLUMNS,sizeof(double *));
+  for (int i = 0; i < NUM_INPUT_DATA_COLUMNS; ++i)
   {
     data[i] = (double *) calloc((int)inputLines.size(),sizeof(double));
   }
-  error->message(FLERR, "INFO: Memory allocated for two columns of data");
+  snprintf(message,messageLength, "INFO: Memory allocated for %d columns of data, each with %d entries",
+           NUM_INPUT_DATA_COLUMNS, (int)inputLines.size());
+  error->message(FLERR, message);
 
   // Since we know the size of the data, we can allocate memory for the
   // vector all at once. Tends to be a bit more efficient when/if
-  // you have the size available.
+  // you do have the size available.
   std::vector<PressureCorrectionInput> dataEx(inputLines.size());
-  error->message(FLERR, "INFO: About to parse lines");
+  error->message(FLERR, "INFO: vector instantiated to full inputLines size");
+
+  error->message(FLERR, "INFO: About to parse values from file");
   // Parse the lines into data values, validating as we go
   int lineNum = 0;
   int idx = 0;
   PressureCorrectionInput pci;
-  std::vector<char*>::const_iterator iter;
+  std::vector<std::string>::const_iterator iter;
   for (iter = inputLines.begin(); iter != inputLines.end(); ++iter) {
+    test_sscanf = sscanf(inputLines[lineNum].c_str(), " %f , %f ", &f1, &f2);
     lineNum++;  // increment the line number every line
-    test_sscanf = sscanf(inputLines[i]," %f , %f ",&f1, &f2);
     if (test_sscanf == 2)
     {
-      data[0][idx] = (double) f1;
-      data[1][idx] = (double) f2;
-      //pci.volume = (double) f1;
-      //pci.pressureCorrection = (double) f2;
-      //dataEx.push_back(pci);
+      //snprintf(message,messageLength, "INFO: Line %d, values from file: volume %f, pressure %f",
+      //         lineNum, f1, f2);
+      //error->message(FLERR, message);
+      data[VOLUME][idx] = (double) f1;
+      data[PRESSURE_CORRECTION][idx] = (double) f2;
+      pci.volume = (double) f1;
+      pci.pressureCorrection = (double) f2;
+      dataEx.at(idx) = pci;
       idx++; // Only increment the data index after we have a good value
     }
     else
     {
       snprintf(message, messageLength, "WARNING: did not find 2 comma separated values in "
-              "line %d of file %s\n\tline: %s", lineNum, filename, inputLines[i]);
+              "line %d of file %s\n\tline: %s", lineNum, filename, inputLines[lineNum].c_str());
       error->warning(FLERR, message);
     }
   }
 
-  int numValidEntries = idx;
+  int numValidEntries = (int)dataEx.size();
   snprintf(message,messageLength,"INFO: Read %d lines from file, found %d valid lines",
            lineNum, numValidEntries);
   error->message(FLERR, message);
@@ -783,34 +797,24 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
 
   if (p_basis_type == BASIS_LINEAR_SPLINE)
   {
-    splines = (double **) calloc(2,sizeof(double *));
-    splines[0] = (double *) calloc(numValidEntries,sizeof(double));
-    splines[1] = (double *) calloc(numValidEntries,sizeof(double));
-    int idxa, idxb;
-    /*
-    //for (idxa = 0; idxa < 2; ++idxa)
-    //{
-      for (idxb = 0; idxb < numValidEntries; ++idxb)
-      {
-        splines[0][idxb] = dataEx[idxb].volume;
-        splines[1][idxb] = dataEx[idxb].pressureCorrection;
-      }
-    //}
-     */
-    for (idxa = 0; idxa < 2; ++idxa)
+    // build_linear_splines
+    // I'd prefer to put this code in a function but it appears that,
+    // as of now, to pass dataEx as a function argument would require adding
+    // #include <vector> to one of the main header files. I'm not sure
+    // team-LAMMPS is ready for that
+    splines = (double **) calloc(NUM_LINEAR_SPLINE_COLUMNS,sizeof(double *));
+    splines[VOLUME] = (double *) calloc(numValidEntries,sizeof(double));
+    splines[PRESSURE_CORRECTION] = (double *) calloc(numValidEntries,sizeof(double));
+    for (int idxb = 0; idxb < numValidEntries; ++idxb)
     {
-      for (idxb = 0; idxb < numValidEntries; ++idxb)
-      {
-        splines[idxa][idxb] = data[idxa][idxb];
-      }
+      splines[VOLUME][idxb] = dataEx[idxb].volume;
+      splines[PRESSURE_CORRECTION][idxb] = dataEx[idxb].pressureCorrection;
     }
-
   }
   else if (p_basis_type == BASIS_CUBIC_SPLINE)
   {
     spline_length = numValidEntries;
     build_cubic_splines(data);
-    //n_entries -= 1;
   }
   else
   {
@@ -824,7 +828,7 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
   // main development. I suspect it does the right thing
   // for p_basis_type analytic or linear but not for cubic
   // Need to verify that and fix
-  for (i = 0; i < N_columns; ++i) {
+  for (int i = 0; i < NUM_INPUT_DATA_COLUMNS; ++i) {
     free(data[i]);
   }
   free(data);
