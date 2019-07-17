@@ -721,7 +721,7 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
       if (test_sscanf == 2)
       {
         data[0][idx] = (double) f1;
-        data[1][idx] = (double) f2;
+        data[PRESSURE_CORRECTION][idx] = (double) f2;
         // Only increment the index if the line passes validation
         idx++;
       }
@@ -856,19 +856,19 @@ void FixBocs::build_cubic_splines( double **data )
   int idx;
   for (int i=0; i<n; i++)
   {
-    a[i] = data[1][i];
+    a[i] = data[PRESSURE_CORRECTION][i];
     b[i] = 0.0;
     d[i] = 0.0;
 
     if (i<(n-1))
     {
-      h[i] = (data[0][i+1] - data[0][i]);
+      h[i] = (data[VOLUME][i+1] - data[VOLUME][i]);
     }
 
     if (i>1 && i<(n-1))
     {
-      alpha_i = (3.0 / h[i]) * ( data[1][i+1] - data[1][i]) - (3.0 / h[i-1] )
-                                             * ( data[1][i] - data[1][i-1] );
+      alpha_i = (3.0 / h[i]) * ( data[PRESSURE_CORRECTION][i+1] - data[PRESSURE_CORRECTION][i]) - (3.0 / h[i-1] )
+                                             * ( data[PRESSURE_CORRECTION][i] - data[PRESSURE_CORRECTION][i-1] );
       alpha[i-1] = alpha_i;
     }
   }
@@ -878,7 +878,7 @@ void FixBocs::build_cubic_splines( double **data )
 
   for (int i=1; i<n-1; i++)
   {
-    l[i] = 2*(data[0][i+1] - data[0][i-1]) - h[i-1] * mu[i-1];
+    l[i] = 2*(data[VOLUME][i+1] - data[VOLUME][i-1]) - h[i-1] * mu[i-1];
     mu[i] = h[i]/l[i];
     z[i] = (alpha[i] - h[i-1] * z[i-1]) / l[i];
   }
@@ -911,7 +911,7 @@ void FixBocs::build_cubic_splines( double **data )
     splines[2][idx] = b[idx];
     splines[3][idx] = c[idx];
     splines[4][idx] = d[idx];
-    splines[0][idx] = data[0][idx];
+    splines[0][idx] = data[VOLUME][idx];
   }
 }
 // END NJD MRD 2 functions
