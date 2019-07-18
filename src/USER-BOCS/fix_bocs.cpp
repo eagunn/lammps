@@ -754,7 +754,7 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
 
   // Since we know the size of the data, we can allocate memory for the
   // vector all at once. Tends to be a bit more efficient when/if
-  // you do have the size available.
+  // you know the value.
   std::vector<PressureCorrectionInput> dataEx(inputLines.size());
   error->message(FLERR, "INFO: vector instantiated to full inputLines size");
 
@@ -835,6 +835,10 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
   return numValidEntries;
 }
 
+xxxxx TODO: create a struct to hold a, b, c through z
+xxxxx use a vector to hold/manage all the points
+xxxxx remove the n+1 stuff and treat n as a special case
+xxxxx when working backwards
 void FixBocs::build_cubic_splines( double **data )
 {
   char msg[128];
