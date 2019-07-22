@@ -59,6 +59,7 @@ static const char cite_user_bocs_package[] =
 enum{NOBIAS,BIAS};
 enum{NONE,XYZ,XY,YZ,XZ};
 enum{ISO,ANISO,TRICLINIC};
+enum{VOLUME, PRESSURE_CORRECTION};
 
 // NB: Keep error and warning messages less than 255 chars long.
 const int MAX_MESSAGE_LENGTH = 256;
@@ -187,7 +188,7 @@ FixBocs::FixBocs(LAMMPS *lmp, int narg, char **arg) :
           error->all(FLERR,"Illegal fix bocs command. basis type analytic"
                     " must be followed by: avg_vol n_mol n_pmatch_coeff");
         }
-        p_basis_type = 0;
+        p_basis_type = BASIS_ANALYTIC;
         vavg = force->numeric(FLERR,arg[iarg+1]);
         N_mol = force->inumeric(FLERR,arg[iarg+2]);
         N_p_match = force->inumeric(FLERR,arg[iarg+3]);
@@ -201,13 +202,14 @@ FixBocs::FixBocs(LAMMPS *lmp, int narg, char **arg) :
       } else if (strcmp(arg[iarg], "linear_spline") == 0  ) {
         if (iarg+2 > narg) error->all(FLERR,"Illegal fix bocs command. "
                               "Supply a file name after linear_spline.");
-        p_basis_type = 1;
+        p_basis_type = BASIS_LINEAR_SPLINE;
         spline_length = read_F_table( arg[iarg+1], p_basis_type );
         iarg += 2;
       } else if (strcmp(arg[iarg], "cubic_spline") == 0 ) {
         if (iarg+2 > narg) error->all(FLERR,"Illegal fix bocs command. "
                                "Supply a file name after cubic_spline.");
-        p_basis_type = 2;
+        p_basis_type = BASIS_CUBIC_SPLINE;
+        error->message(FLERR, "INFO: About to call read_F_table");
         spline_length = read_F_table( arg[iarg+1], p_basis_type );
         iarg += 2;
       }  else {
@@ -534,12 +536,12 @@ void FixBocs::init()
     {
       if (pressure)
       {
-        if (p_basis_type == 0)
+        if (p_basis_type == BASIS_ANALYTIC)
         {
           ((ComputePressureBocs *)pressure)->send_cg_info(p_basis_type,
                                N_p_match, p_match_coeffs, N_mol, vavg);
         }
-        else if ( p_basis_type == 1 || p_basis_type == 2 )
+        else if ( p_basis_type == BASIS_LINEAR_SPLINE || p_basis_type == BASIS_CUBIC_SPLINE )
         {
           ((ComputePressureBocs *)pressure)->send_cg_info(p_basis_type,
                                                splines, spline_length);
@@ -627,6 +629,8 @@ void FixBocs::init()
 // NJD MRD 2 functions
 int FixBocs::read_F_table( char *filename, int p_basis_type )
 {
+  error->message(FLERR, "INFO: entering read_F_table");
+
   FILE *fpi;
   int N_columns = 2, n_entries = 0, i;
   float f1, f2;
@@ -645,6 +649,7 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
     {
       data[i] = (double *) calloc(n_entries,sizeof(double));
     }
+    error->message(FLERR, "INFO: first pass through file complete");
 
     // Don't need to re-open the file to make a second pass through it
     // simply rewind to beginning
@@ -665,13 +670,13 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
       test_sscanf = sscanf(line," %f , %f ",&f1, &f2);
       if (test_sscanf == 2)
       {
-        data[0][n_entries-1] = (double) f1;
-        data[1][n_entries-1] = (double) f2;
+        data[VOLUME][n_entries-1] = (double) f1;
+        data[PRESSURE_CORRECTION][n_entries-1] = (double) f2;
         if (n_entries == 2) {
-          stdVolumeInterval = data[0][n_entries-1] - data[0][n_entries-2];
+          stdVolumeInterval = data[VOLUME][n_entries-1] - data[VOLUME][n_entries-2];
         }
         else if (n_entries > 2) {
-          currVolumeInterval = data[0][n_entries-1] - data[0][n_entries-2];
+          currVolumeInterval = data[VOLUME][n_entries-1] - data[VOLUME][n_entries-2];
           if (fabs(currVolumeInterval - stdVolumeInterval) > volumeIntervalTolerance) {
             snprintf(badDataMsg,MAX_MESSAGE_LENGTH,
                      "BAD VOLUME INTERVAL: spline analysis requires uniform"
@@ -709,7 +714,7 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
     error->all(FLERR,errmsg);
   }
 
-  if (p_basis_type == 1)
+  if (p_basis_type == BASIS_LINEAR_SPLINE)
   {
     splines = (double **) calloc(2,sizeof(double *));
     splines[0] = (double *) calloc(n_entries,sizeof(double));
@@ -723,7 +728,7 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
       }
     }
   }
-  else if (p_basis_type == 2)
+  else if (p_basis_type == BASIS_CUBIC_SPLINE)
   {
     spline_length = n_entries;
     build_cubic_splines(data);
@@ -762,19 +767,19 @@ void FixBocs::build_cubic_splines( double **data )
   int idx;
   for (int i=0; i<n; i++)
   {
-    a[i] = data[1][i];
+    a[i] = data[PRESSURE_CORRECTION][i];
     b[i] = 0.0;
     d[i] = 0.0;
 
     if (i<(n-1))
     {
-      h[i] = (data[0][i+1] - data[0][i]);
+      h[i] = (data[VOLUME][i+1] - data[VOLUME][i]);
     }
 
     if (i>1 && i<(n-1))
     {
-      alpha_i = (3.0 / h[i]) * ( data[1][i+1] - data[1][i]) - (3.0 / h[i-1] )
-                                             * ( data[1][i] - data[1][i-1] );
+      alpha_i = (3.0 / h[i]) * ( data[PRESSURE_CORRECTION][i+1] - data[PRESSURE_CORRECTION][i])
+              - (3.0 / h[i-1] ) * ( data[PRESSURE_CORRECTION][i] - data[PRESSURE_CORRECTION][i-1] );
       alpha[i-1] = alpha_i;
     }
   }
@@ -784,7 +789,7 @@ void FixBocs::build_cubic_splines( double **data )
 
   for (int i=1; i<n-1; i++)
   {
-    l[i] = 2*(data[0][i+1] - data[0][i-1]) - h[i-1] * mu[i-1];
+    l[i] = 2*(data[VOLUME][i+1] - data[VOLUME][i-1]) - h[i-1] * mu[i-1];
     mu[i] = h[i]/l[i];
     z[i] = (alpha[i] - h[i-1] * z[i-1]) / l[i];
   }
@@ -817,7 +822,7 @@ void FixBocs::build_cubic_splines( double **data )
     splines[2][idx] = b[idx];
     splines[3][idx] = c[idx];
     splines[4][idx] = d[idx];
-    splines[0][idx] = data[0][idx];
+    splines[0][idx] = data[VOLUME][idx];
   }
 }
 // END NJD MRD 2 functions
@@ -1516,12 +1521,12 @@ int FixBocs::modify_param(int narg, char **arg)
 
     if (p_match_flag) // NJD MRD
     {
-      if ( p_basis_type == 0 )
+      if ( p_basis_type == BASIS_ANALYTIC )
       {
         ((ComputePressureBocs *)pressure)->send_cg_info(p_basis_type, N_p_match,
                                                    p_match_coeffs, N_mol, vavg);
       }
-      else if ( p_basis_type == 1 || p_basis_type == 2  )
+      else if ( p_basis_type == BASIS_LINEAR_SPLINE || p_basis_type == BASIS_CUBIC_SPLINE  )
       {
         ((ComputePressureBocs *)pressure)->send_cg_info(p_basis_type, splines,
                                                                 spline_length );

@@ -27,7 +27,11 @@ ComputeStyle(PRESSURE/BOCS,ComputePressureBocs)
 #include "compute.h"
 
 namespace LAMMPS_NS {
-// ComputePressure -> ComputePressureBocs MRD NJD
+
+  // Enumerate the p_basis_type magic values to improve readability:
+  enum{BASIS_ANALYTIC, BASIS_LINEAR_SPLINE, BASIS_CUBIC_SPLINE};
+
+  // ComputePressure -> ComputePressureBocs MRD NJD
 class ComputePressureBocs : public Compute {
  public:
   ComputePressureBocs(class LAMMPS *, int, char **);
