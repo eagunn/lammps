@@ -17,6 +17,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <cmath>
+#include <vector>
 #include "fix_bocs.h"
 #include "math_extra.h"
 #include "atom.h"
@@ -55,6 +56,10 @@ static const char cite_user_bocs_package[] =
 
 #define DELTAFLIP 0.1
 #define TILTMAX 1.5
+
+// vectors are simple to use but the declarations look quite complex.
+// Simplify code below by giving ourselves a custom type definition.
+typedef std::vector<double> doubleArray;
 
 enum{NOBIAS,BIAS};
 enum{NONE,XYZ,XY,YZ,XZ};
@@ -729,7 +734,31 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
   else if (p_basis_type == BASIS_CUBIC_SPLINE)
   {
     spline_length = n_entries;
+
     build_cubic_splines(data);
+    build_cubic_splines_ex(data);
+
+    // TEMP -- todo, remove this validation once
+    // build_cubic_splines_ex is fully tested
+    bool unmatchedData = false;
+    for (int idxa = 0; idxa < 5; ++idxa) {
+      for (int idxb = 0; idxb < spline_length - 1; ++idxb) {
+        if (splines[idxa][idxb] != splinesEx[idxa][idxb]) {
+          unmatchedData = true;
+          char errmsg[MAX_MESSAGE_LENGTH];
+          snprintf(errmsg, MAX_MESSAGE_LENGTH,
+                   "WARNING: new spline value %f does not match previous value %f",
+                   splinesEx[idxa][idxb], splines[idxa][idxb]);
+          error->warning(FLERR,errmsg);
+        }
+      }
+    }
+    if (unmatchedData) {
+      error->warning(FLERR, "ERROR: old and new spline values must match");
+    }
+    else {
+      error->message(FLERR, "INFO: old and new spline values match");
+    }
     n_entries -= 1;
   }
   else
@@ -748,6 +777,148 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
   return n_entries;
 }
 
+/* build_cubic_splines -- compute the natural cubic splines based on
+ * input volume/pressure-correction data
+ *
+ * This code was originally authored by N. J. H. Dunn and Michael R. DeLyser
+ * to conform to the algorithm described at:
+ * https://en.wikipedia.org/w/index.php?title=Spline_(mathematics)&oldid=907516797#Algorithm_for_computing_natural_cubic_splines
+ * (that's a perma-link to a specific version of the page)
+ * which may or may not be identical to the current version of the algorithm at:
+ * https://en.wikipedia.org/wiki/Spline_(mathematics)#Algorithm_for_computing_natural_cubic_splines
+ *
+ * The input two-d array 'data' consists of two columns of volume and pressure correction values.
+ * The columns each have n entries, with n somewhat misleading labeled here as 'spline_length'.
+ * The n points/knots actually define n-1 splines.
+ * The purpose of this function is to massage the n point values into the coefficients
+ * for n-1 spline curves, which will then be passed to the compute functions.
+ *
+ * The results are stored in a five-d array 'splines'.
+ *
+ */
+void FixBocs::build_cubic_splines_ex( double **data )
+{
+  // The spline_length member variable holds the number of input
+  // points/knots, not the number of output splines.
+  // Let's distinguish between those two values right away.
+  int numberPoints = spline_length;
+  int numberSplines = numberPoints - 1;
+
+  // We need a series of arrays to hold coefficient results and some
+  // intermediate numbers. Each array can hold numberPoint values and we initialize
+  // the values to clean zeros or ones. This is basically what calloc would do
+  // but here we use local memory that is automatically freed when the variables go out of scope.
+  // calloc's heap-based memory has to be explicitly freed.
+  // The eventual coefficients that will go into the output splines array.
+  doubleArray aVec(numberPoints, 0.0);
+  doubleArray bVec(numberPoints, 0.0);
+  doubleArray cVec(numberPoints, 0.0);
+  doubleArray dVec(numberPoints, 0.0);
+  // volume differences.
+  // TODO: consider optimizing this array out of existence.
+  // If volume distribution is uniform, we only need to calculate
+  // this value once.
+  doubleArray hVec(numberPoints, 0.0);
+  // intermediate values, see the wikipedia reference
+  doubleArray alphaVec(numberPoints, 0.0);
+  doubleArray lVec(numberPoints, 1.0);  // intentionally 1.0, not 0.0
+  doubleArray muVec(numberPoints, 0.0);
+  doubleArray zVec(numberPoints, 0.0);
+
+  // Work our way forward through the points, calculating as we go
+  for (int i=0; i < numberPoints; i++)
+  {
+    //a[i] = data[PRESSURE_CORRECTION][i];
+    aVec[i] = data[PRESSURE_CORRECTION][i];
+    //b[i] = 0.0;
+    // bVec[i] is already 0.0
+    //d[i] = 0.0;
+    // dVec[i] is already 0.0
+
+    // Calculate the uniform volume difference
+    if (i < numberSplines)
+    {
+      //h[i] = (data[VOLUME][i+1] - data[VOLUME][i]);
+      hVec[i] = (data[VOLUME][i+1] - data[VOLUME][i]);
+    }
+
+    double alpha_i;
+    if (i > 1 && i < numberSplines)
+    {
+      alpha_i = (3.0 / hVec[i]) * ( data[PRESSURE_CORRECTION][i+1] - data[PRESSURE_CORRECTION][i])
+              - (3.0 / hVec[i-1] ) * ( data[PRESSURE_CORRECTION][i] - data[PRESSURE_CORRECTION][i-1] );
+      //alpha[i-1] = alpha_i;
+      alphaVec[i-1] = alpha_i;
+    }
+  }
+  //l[0] = 1.0;
+  // lvec[0] already 1.0
+  //mu[0] = 0.0;
+  // muVec[0] already 0.0
+  //z[0] = 0.0;
+  // zVec[0] already 0.0
+
+  // Work our way forward again
+  for (int i = 1; i < numberSplines; i++)
+  {
+    //l[i] = 2*(data[VOLUME][i+1] - data[VOLUME][i-1]) - h[i-1] * mu[i-1];
+    lVec[i] = 2*(data[VOLUME][i+1] - data[VOLUME][i-1]) - hVec[i-1] * muVec[i-1];
+    //mu[i] = h[i]/l[i];
+    muVec[i] = hVec[i]/lVec[i];
+    //z[i] = (alpha[i] - h[i-1] * z[i-1]) / l[i];
+    zVec[i] = (alphaVec[i] - hVec[i-1] * zVec[i-1]) / lVec[i];
+  }
+  /* these values are already set by vector declarations above
+  l[n-1] = 1.0;
+  mu[n-1] = 0.0;
+  z[n-1] = 0.0;
+
+  c[n] = 0.0;
+  b[n] = 0.0;
+  d[n] = 0.0;
+  */
+
+  // Now, we work our way backward through the points, calculating as we go
+  for(int j = numberSplines; j >= 0; j--) {
+    if (j == numberSplines) {
+      //c[j] = z[j] - mu[j] * c[j + 1];
+      // c[j+1] would be zero, second term is zero
+      cVec[j] = zVec[j];
+      //b[j] = (a[j + 1] - a[j]) / h[j] - h[j] * (c[j + 1] + 2.0 * c[j]) / 3.0;
+      // c[j+1] would be zero, complex second term would be zero
+      bVec[j] = (aVec[j + 1] - aVec[j]) / hVec[j];
+      //d[j] = (c[j + 1] - c[j]) / (3.0 * h[j]);
+      // c[j+1] would be zero, numerator is simply -c[j]
+      dVec[j] = (-1 * cVec[j]) / (3.0 * hVec[j]);
+    }
+    else {
+      //c[j] = z[j] - mu[j] * c[j + 1];
+      cVec[j] = zVec[j] - muVec[j] * cVec[j + 1];
+
+      //b[j] = (a[j + 1] - a[j]) / h[j] - h[j] * (c[j + 1] + 2.0 * c[j]) / 3.0;
+      bVec[j] = (aVec[j + 1] - aVec[j]) / hVec[j] - hVec[j] * (cVec[j + 1] + 2.0 * cVec[j]) / 3.0;
+
+      //d[j] = (c[j + 1] - c[j]) / (3.0 * h[j]);
+      dVec[j] = (cVec[j + 1] - cVec[j]) / (3.0 * hVec[j]);
+    }
+  }
+  splinesEx = (double **) calloc(5,sizeof(double *));
+
+  // Allocate space for all our output data
+  for (int idx = 0; idx < 5; ++idx)
+  {
+    splinesEx[idx] = (double *) calloc(numberSplines,sizeof(double));
+  }
+  //idx = 0;
+  for (int idx = 0; idx < numberSplines; ++idx)
+  {
+    splinesEx[0][idx] = data[VOLUME][idx];
+    splinesEx[1][idx] = aVec[idx];
+    splinesEx[2][idx] = bVec[idx];
+    splinesEx[3][idx] = cVec[idx];
+    splinesEx[4][idx] = dVec[idx];
+  }
+}
 void FixBocs::build_cubic_splines( double **data )
 {
   double *a, *b, *d, *h, *alpha, *c, *l, *mu, *z;
@@ -777,7 +948,7 @@ void FixBocs::build_cubic_splines( double **data )
     if (i>1 && i<(n-1))
     {
       alpha_i = (3.0 / h[i]) * ( data[PRESSURE_CORRECTION][i+1] - data[PRESSURE_CORRECTION][i])
-              - (3.0 / h[i-1] ) * ( data[PRESSURE_CORRECTION][i] - data[PRESSURE_CORRECTION][i-1] );
+                - (3.0 / h[i-1] ) * ( data[PRESSURE_CORRECTION][i] - data[PRESSURE_CORRECTION][i-1] );
       alpha[i-1] = alpha_i;
     }
   }

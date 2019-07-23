@@ -91,6 +91,7 @@ class FixBocs : public Fix {
   int N_p_match;
   double *p_match_coeffs;
   double ** splines;
+  double ** splinesEx; // TODO: remove this once new build_cubic_splines code is tested
   int spline_length;
 
 
@@ -151,6 +152,7 @@ class FixBocs : public Fix {
   void nhc_press_integrate();
 
   int read_F_table(char *, int);
+  void build_cubic_splines_ex(double **);
   void build_cubic_splines(double **);
 
   virtual void nve_x();            // may be overwritten by child classes
