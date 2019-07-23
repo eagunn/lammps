@@ -629,8 +629,6 @@ void FixBocs::init()
 // NJD MRD 2 functions
 int FixBocs::read_F_table( char *filename, int p_basis_type )
 {
-  error->message(FLERR, "INFO: entering read_F_table");
-
   FILE *fpi;
   int N_columns = 2, n_entries = 0, i;
   float f1, f2;
