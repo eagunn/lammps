@@ -14,12 +14,12 @@
    from The Pennsylvania State University
 ------------------------------------------------------------------------- */
 
+#include "fix_bocs.h"
 #include <cstring>
 #include <cstdlib>
 #include <cmath>
 #include <vector>
-#include "fix_bocs.h"
-#include "math_extra.h"
+//#include "math_extra.h"
 #include "atom.h"
 #include "force.h"
 #include "group.h"
