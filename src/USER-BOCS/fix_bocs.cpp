@@ -59,6 +59,25 @@ enum{NOBIAS,BIAS};
 enum{NONE,XYZ,XY,YZ,XZ};
 enum{ISO,ANISO,TRICLINIC};
 
+// Simple struct to make the data-file input code more readable
+// Note that structs are most often used for data only. But a
+// C++ struct, as opposed to a C struct, is actually a class
+// whose members are public by default. So, it's perfectly valid
+// for a struct to have a non-default constructor and/or other
+// member methods.
+struct PressureCorrectionInput {
+  double volume;
+  double pressureCorrection;
+  PressureCorrectionInput() {
+    volume = 0.0;
+    pressureCorrection = 0.0;
+  }
+};
+
+const int NUM_INPUT_DATA_COLUMNS = 2;     // columns in the pressure correction file
+const int NUM_LINEAR_SPLINE_COLUMNS = 2;  // linear spline columns passed to compute
+const int NUM_CUBIC_SPLINE_COLUMNS = 5;   // cubic spline columns passed to compute
+
 // NB: Keep error and warning messages less than 255 chars long.
 const int MAX_MESSAGE_LENGTH = 256;
 
@@ -647,17 +666,18 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
   char line[MAX_F_TABLE_LINE_LENGTH];
   bool badInput = false;
   int numEntries = 0;
+  int numValidEntries = 0;
   FILE *fpi = fopen(filename,"r");
   if (fpi)
   {
-    // Count the number of lines/entries in the input data file
-    // And allocate memory for the data array that will hold
-    // all the data we read from the file
 
+    // Count the number of lines/entries in the input data file
     // Note: fgets will read no more than (specified length - 1) chars, then
     // adds the terminating null. But for our data file, we expect the read
     // to terminate at the newline character, well before the specified length.
     while (fgets(line, MAX_F_TABLE_LINE_LENGTH, fpi)) {++numEntries;}
+    // Allocate memory for the data array that will hold
+    // all the data we are about to read from the file
     for (i = 0; i < N_columns; ++i)
     {
       data[i] = (double *) calloc(numEntries,sizeof(double));
@@ -678,42 +698,66 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
     // needs to be complicated here, though. At least based on the
     // sample data I've seen where the volume values are fairly large.
     const double volumeIntervalTolerance = 0.001;
-    n_entries = 0;
-    while( fgets(line,199,fpi)) {
-      ++n_entries;
+    // Read the data from the file into our data array
+    int idx = 0;  // this value keeps track of the entries that pass validation
+    int lineNum = 0;  // this value is only for  message
+    bool thisEntryValid = true;
+    while (fgets(line,MAX_F_TABLE_LINE_LENGTH,fpi)) {
+      lineNum++;  // count every line read, so lineNum messages are 1-based
       test_sscanf = sscanf(line," %f , %f ",&f1, &f2);
       if (test_sscanf == 2)
       {
-        data[0][n_entries-1] = (double) f1;
-        data[1][n_entries-1] = (double) f2;
-        if (n_entries == 2) {
-          stdVolumeInterval = data[0][n_entries-1] - data[0][n_entries-2];
+        thisEntryValid = true;
+        data[VOLUME][idx] = (double) f1;
+        data[PRESSURE_CORRECTION][idx] = (double) f2;
+        if (idx == 1) {
+          // Compare first and second data values to determine standard interval
+          stdVolumeInterval = data[VOLUME][idx] - data[VOLUME][idx-1];
         }
-        else if (n_entries > 2) {
-          currVolumeInterval = data[0][n_entries-1] - data[0][n_entries-2];
+        else if (idx > 1) {
+          // Every interval thereafter should match the standard
+          currVolumeInterval = data[VOLUME][idx] - data[VOLUME][idx-1];
           if (fabs(currVolumeInterval - stdVolumeInterval) > volumeIntervalTolerance) {
             snprintf(badDataMsg,MAX_MESSAGE_LENGTH,
                      "BAD VOLUME INTERVAL: spline analysis requires uniform"
                      " volume distribution, found inconsistent volume"
                      " differential, line %d of file %s\n\tline: %s",
-                     n_entries,filename,line);
+                     lineNum,filename,line);
             error->message(FLERR,badDataMsg);
+            thisEntryValid = false;
             badInput = true;
           }
         }
-        // no else -- first entry is simply ignored
+        // no else -- first entry gets no validation
+
+        if (thisEntryValid) {
+          // Only increment the index if the line passes validation
+          idx++;
+        }
       }
       else
       {
         snprintf(badDataMsg,MAX_MESSAGE_LENGTH,
                  "BAD INPUT FORMAT: did not find 2 comma separated numeric"
                  " values in line %d of file %s\n\tline: %s",
-                 n_entries,filename,line);
+                 lineNum,filename,line);
         error->message(FLERR,badDataMsg);
         badInput = true;
       }
     }
     fclose(fpi);
+
+    // temporary -- just till dataEx comes back
+    numValidEntries = idx;
+    /* These lines aren't valid till we introduce dataEx vector from simplify
+    int numValidEntries = (int)dataEx.size();
+    snprintf(message,MAX_MESSAGE_LENGTH,"INFO: Read %d lines from file, found %d valid lines",
+             lineNum, numValidEntries);
+    error->message(FLERR, message);
+
+    snprintf(message,MAX_MESSAGE_LENGTH,"INFO: dataEx has %d entries", (int)dataEx.size());
+    error->message(FLERR, message);
+     */
   }
   else {
     char errmsg[MAX_MESSAGE_LENGTH];
@@ -728,59 +772,32 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
     error->all(FLERR,errmsg);
   }
 
-  // Read the data from the file into our data array
-  int idx = 0;  // this value keeps track of the entries that pass validation
-  int lineNum = 0;  // this value is only for  message
-  //fpi = fopen(filename,"r");
-  rewind(fpi);
-  //if (fpi) {
-    while( fgets(line,MAX_F_TABLE_LINE_LENGTH,fpi)) {
-      lineNum++;
-      test_sscanf = sscanf(line," %f , %f ",&f1, &f2);
-      if (test_sscanf == 2)
-      {
-        data[0][idx] = (double) f1;
-        data[1][idx] = (double) f2;
-        // Only increment the index if the line passes validation
-        idx++;
-      }
-      else
-      {
-        snprintf(message,messageLength,"WARNING: did not find 2 comma separated values in "
-                           "line %d of file %s\n\tline: %s",lineNum,filename,line);
-        error->warning(FLERR, message);
-      }
-    }
   fclose(fpi);
-
-  int numValidEntries = idx;
-  snprintf(message,messageLength,"INFO: Read %d lines from file, found %d valid lines",
-           lineNum, numValidEntries);
-  error->message(FLERR, message);
 
   if (p_basis_type == BASIS_LINEAR_SPLINE)
   {
-    splines = (double **) calloc(2,sizeof(double *));
-    splines[0] = (double *) calloc(numValidEntries,sizeof(double));
-    splines[1] = (double *) calloc(numValidEntries,sizeof(double));
-    int idxa, idxb;
-    for (idxa = 0; idxa < 2; ++idxa)
+    // build_linear_splines
+    // I'd prefer to put this code in a function but it appears that,
+    // as of now, to pass dataEx as a function argument would require adding
+    // #include <vector> to one of the main header files. I'm not sure
+    // team-LAMMPS is ready for that
+    splines = (double **) calloc(NUM_LINEAR_SPLINE_COLUMNS,sizeof(double *));
+    splines[VOLUME] = (double *) calloc(numValidEntries,sizeof(double));
+    splines[PRESSURE_CORRECTION] = (double *) calloc(numValidEntries,sizeof(double));
+    for (int idxb = 0; idxb < numValidEntries; ++idxb)
     {
-      for (idxb = 0; idxb < numValidEntries; ++idxb)
-      {
-        splines[idxa][idxb] = data[idxa][idxb];
-      }
+      splines[VOLUME][idxb] = data[VOLUME][idxb];
+      splines[PRESSURE_CORRECTION][idxb] = data[PRESSURE_CORRECTION][idxb];
     }
   }
   else if (p_basis_type == BASIS_CUBIC_SPLINE)
   {
     spline_length = numValidEntries;
     build_cubic_splines(data);
-    //n_entries -= 1;
   }
   else
   {
-    snprintf(message,messageLength,
+    snprintf(message,MAX_MESSAGE_LENGTH,
              "ERROR: invalid p_basis_type value of %d in read_F_table",
              p_basis_type);
     error->all(FLERR,message);
@@ -790,7 +807,7 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
   // main development. I suspect it does the right thing
   // for p_basis_type analytic or linear but not for cubic
   // Need to verify that and fix
-  for (i = 0; i < N_columns; ++i) {
+  for (int i = 0; i < NUM_INPUT_DATA_COLUMNS; ++i) {
     free(data[i]);
   }
   free(data);
