@@ -18,6 +18,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <cmath>
+#include <vector>
 #include "atom.h"
 #include "force.h"
 #include "group.h"
@@ -670,25 +671,36 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
   FILE *fpi = fopen(filename,"r");
   if (fpi)
   {
-
-    // Count the number of lines/entries in the input data file
-    // Note: fgets will read no more than (specified length - 1) chars, then
-    // adds the terminating null. But for our data file, we expect the read
-    // to terminate at the newline character, well before the specified length.
-    while (fgets(line, MAX_F_TABLE_LINE_LENGTH, fpi)) {++numEntries;}
-    // Allocate memory for the data array that will hold
-    // all the data we are about to read from the file
-    for (i = 0; i < N_columns; ++i)
-    {
-      data[i] = (double *) calloc(numEntries,sizeof(double));
+    // Old code read the input file twice. Instead, we now
+    // read all the lines from the input file into a simple vector,
+    // then work with the in-memory data rather than do a second pass
+    // through the file.
+    // NB: LAMMPS coding guidelines prefer cstdio so we are intentionally
+    // foregoing  reading with getline
+    error->message(FLERR, "INFO: About to read data file");
+    std::vector<std::string> inputLines;
+    while (fgets(line, MAX_F_TABLE_LINE_LENGTH, fpi)) {
+      inputLines.push_back(std::string(line));
     }
+    snprintf(message,MAX_MESSAGE_LENGTH,"INFO: Read %d lines from file",
+             (int)inputLines.size());
+    error->message(FLERR, message);
+    snprintf(message,MAX_MESSAGE_LENGTH,"INFO: first line is: %s",
+             inputLines[0].c_str());
+    error->message(FLERR, message);
+    snprintf(message,MAX_MESSAGE_LENGTH,"INFO: last line is: %s",
+             inputLines[inputLines.size()-1].c_str());
+    error->message(FLERR, message);
 
-    // Don't need to close/re-open the file to make a second pass through it
-    // simply rewind to beginning.
-    // We do this not for performance but for simplicity and to avoid
-    // the slight overhead/risk in ceding the file back to the file
-    // system while we are still working with it.
-    rewind(fpi);
+    error->message(FLERR, "INFO: About to allocate memory for data[]");
+
+    // Allocate memory for the two-d data array
+    double **data = (double **) calloc(NUM_INPUT_DATA_COLUMNS, sizeof(double *));
+    data[VOLUME] = (double *) calloc((int)inputLines.size(), sizeof(double));
+    data[PRESSURE_CORRECTION] = (double *) calloc((int)inputLines.size(), sizeof(double));
+    snprintf(message,MAX_MESSAGE_LENGTH, "INFO: Memory allocated for 2 columns of data, each with %d entries",
+             (int)inputLines.size());
+    error->message(FLERR, message);
 
     double stdVolumeInterval = 0.0;
     double currVolumeInterval = 0.0;
@@ -747,17 +759,8 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
     }
     fclose(fpi);
 
-    // temporary -- just till dataEx comes back
+    // The final value of idx, above, is the count of valid values we got from the file
     numValidEntries = idx;
-    /* These lines aren't valid till we introduce dataEx vector from simplify
-    int numValidEntries = (int)dataEx.size();
-    snprintf(message,MAX_MESSAGE_LENGTH,"INFO: Read %d lines from file, found %d valid lines",
-             lineNum, numValidEntries);
-    error->message(FLERR, message);
-
-    snprintf(message,MAX_MESSAGE_LENGTH,"INFO: dataEx has %d entries", (int)dataEx.size());
-    error->message(FLERR, message);
-     */
   }
   else {
     char errmsg[MAX_MESSAGE_LENGTH];
