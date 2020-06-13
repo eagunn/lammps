@@ -671,17 +671,21 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
   FILE *fpi = fopen(filename,"r");
   if (fpi)
   {
-    // Old code read the input file twice. Instead, we now
-    // read all the lines from the input file into a simple vector,
-    // then work with the in-memory data rather than do a second pass
+    // Old code read the input file twice. Now we simply
+    // read all the lines from the input file into a string vector,
+    // then work with the data in-memory rather than do a second pass
     // through the file.
     // NB: LAMMPS coding guidelines prefer cstdio so we are intentionally
     // foregoing  reading with getline
-    error->message(FLERR, "INFO: About to read data file");
+    snprintf(message, MAX_MESSAGE_LENGTH, "INFO: About to read data file: %s",
+            filename);
+    error->message(FLERR, message);
     std::vector<std::string> inputLines;
     while (fgets(line, MAX_F_TABLE_LINE_LENGTH, fpi)) {
       inputLines.push_back(std::string(line));
     }
+    fclose(fpi);
+
     snprintf(message,MAX_MESSAGE_LENGTH,"INFO: Read %d lines from file",
              (int)inputLines.size());
     error->message(FLERR, message);
@@ -691,7 +695,6 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
     snprintf(message,MAX_MESSAGE_LENGTH,"INFO: last line is: %s",
              inputLines[inputLines.size()-1].c_str());
     error->message(FLERR, message);
-
     error->message(FLERR, "INFO: About to allocate memory for data[]");
 
     // Allocate memory for the two-d data array
@@ -714,11 +717,11 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
     int idx = 0;  // this value keeps track of the entries that pass validation
     int lineNum = 0;  // this value is only for  message
     bool thisEntryValid = true;
-    while (fgets(line,MAX_F_TABLE_LINE_LENGTH,fpi)) {
-      lineNum++;  // count every line read, so lineNum messages are 1-based
-      test_sscanf = sscanf(line," %f , %f ",&f1, &f2);
-      if (test_sscanf == 2)
-      {
+    for (int i = 0; i < inputLines.size(); i++) {
+      lineNum++;  // count every line processed, so lineNum messages are 1-based
+      const char* lineEx = inputLines.at(i).c_str();
+      test_sscanf = sscanf(lineEx," %f , %f ",&f1, &f2);
+      if (test_sscanf == 2) {
         thisEntryValid = true;
         data[VOLUME][idx] = (double) f1;
         data[PRESSURE_CORRECTION][idx] = (double) f2;
@@ -734,7 +737,7 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
                      "BAD VOLUME INTERVAL: spline analysis requires uniform"
                      " volume distribution, found inconsistent volume"
                      " differential, line %d of file %s\n\tline: %s",
-                     lineNum,filename,line);
+                     lineNum,filename,lineEx);
             error->message(FLERR,badDataMsg);
             thisEntryValid = false;
             badInput = true;
@@ -752,12 +755,13 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
         snprintf(badDataMsg,MAX_MESSAGE_LENGTH,
                  "BAD INPUT FORMAT: did not find 2 comma separated numeric"
                  " values in line %d of file %s\n\tline: %s",
-                 lineNum,filename,line);
+                 lineNum,filename,lineEx);
         error->message(FLERR,badDataMsg);
         badInput = true;
       }
     }
-    fclose(fpi);
+    snprintf(message,MAX_MESSAGE_LENGTH, "INFO: Found %d valid entries", idx);
+    error->message(FLERR, message);
 
     // The final value of idx, above, is the count of valid values we got from the file
     numValidEntries = idx;
@@ -774,8 +778,6 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
              "Bad volume / pressure-correction data: %s\nSee details above",filename);
     error->all(FLERR,errmsg);
   }
-
-  fclose(fpi);
 
   if (p_basis_type == BASIS_LINEAR_SPLINE)
   {
@@ -835,7 +837,6 @@ void FixBocs::build_cubic_splines( double **data )
   l = (double *) calloc(n,sizeof(double));
   mu = (double *) calloc(n,sizeof(double));
   z = (double *) calloc(n,sizeof(double));
-  int idx;
   for (int i=0; i<n; i++)
   {
     a[i] = data[1][i];
@@ -882,6 +883,7 @@ void FixBocs::build_cubic_splines( double **data )
   }
   splines = (double **) calloc(5,sizeof(double *));
 
+  int idx;
   for ( idx = 0; idx < 5; ++idx)
   {
     splines[idx] = (double *) calloc(n-1,sizeof(double));
@@ -895,6 +897,9 @@ void FixBocs::build_cubic_splines( double **data )
     splines[4][idx] = d[idx];
     splines[0][idx] = data[0][idx];
   }
+  sprintf(msg, "INFO: build_cubic_splines complete, spline_length = %d", spline_length);
+  error->message(FLERR, msg);
+
 }
 // END NJD MRD 2 functions
 
