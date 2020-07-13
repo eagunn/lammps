@@ -35,6 +35,7 @@
 #include "memory.h"
 #include "error.h"
 #include "citeme.h"
+#include "fmt/format.h"
 
 #include "compute_pressure_bocs.h"
 
@@ -557,12 +558,12 @@ void FixBocs::init()
     {
       if (pressure)
       {
-        if (p_basis_type == 0)
+        if (p_basis_type == BASIS_ANALYTIC)
         {
           ((ComputePressureBocs *)pressure)->send_cg_info(p_basis_type,
                                N_p_match, p_match_coeffs, N_mol, vavg);
         }
-        else if ( p_basis_type == 1 || p_basis_type == 2 )
+        else if ( p_basis_type == BASIS_LINEAR_SPLINE || p_basis_type == BASIS_CUBIC_SPLINE )
         {
           ((ComputePressureBocs *)pressure)->send_cg_info(p_basis_type,
                                                splines, spline_length);
@@ -652,12 +653,10 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
 {
   // NB: Keep your messages (error, warning, message) shorter than 255 chars
   char message[MAX_MESSAGE_LENGTH];
-  char badDataMsg[MAX_MESSAGE_LENGTH];
 
-  int N_columns = 2, i;
-  float f1, f2;
-  int test_sscanf;
-  double **data = (double **) calloc(N_columns,sizeof(double *));
+  //FILE *fpi;
+  //int n_entries = 0;
+  double **data;
 
   // Data file lines hold two floating point numbers.
   // Line length we allocate should be long enough without
@@ -667,10 +666,9 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
   char line[MAX_F_TABLE_LINE_LENGTH];
   bool badInput = false;
   int numEntries = 0;
-  int numValidEntries = 0;
+  //int numValidEntries = 0;
   FILE *fpi = fopen(filename,"r");
-  if (fpi)
-  {
+  if (fpi) {
     // Old code read the input file twice. Now we simply
     // read all the lines from the input file into a string vector,
     // then work with the data in-memory rather than do a second pass
@@ -678,14 +676,13 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
     // NB: LAMMPS coding guidelines prefer cstdio so we are intentionally
     // foregoing  reading with getline
     snprintf(message, MAX_MESSAGE_LENGTH, "INFO: About to read data file: %s",
-            filename);
+             filename);
     error->message(FLERR, message);
-    std::vector<std::string> inputLines;
+    std::vector <std::string> inputLines;
     while (fgets(line, MAX_F_TABLE_LINE_LENGTH, fpi)) {
       inputLines.push_back(std::string(line));
     }
     fclose(fpi);
-
     snprintf(message,MAX_MESSAGE_LENGTH,"INFO: Read %d lines from file",
              (int)inputLines.size());
     error->message(FLERR, message);
@@ -697,13 +694,27 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
     error->message(FLERR, message);
     error->message(FLERR, "INFO: About to allocate memory for data[]");
 
-    // Allocate memory for the two-d data array
-    double **data = (double **) calloc(NUM_INPUT_DATA_COLUMNS, sizeof(double *));
-    data[VOLUME] = (double *) calloc((int)inputLines.size(), sizeof(double));
-    data[PRESSURE_CORRECTION] = (double *) calloc((int)inputLines.size(), sizeof(double));
-    snprintf(message,MAX_MESSAGE_LENGTH, "INFO: Memory allocated for 2 columns of data, each with %d entries",
-             (int)inputLines.size());
+    snprintf(message,MAX_MESSAGE_LENGTH,"INFO: NUM_INPUT_DATA_COLUMNS = %d",
+             NUM_INPUT_DATA_COLUMNS);
     error->message(FLERR, message);
+    snprintf(message,MAX_MESSAGE_LENGTH,"INFO: VOLUME = %d, PRESSURE_CORRECTION = %d",
+             VOLUME, PRESSURE_CORRECTION);
+    error->message(FLERR, message);
+
+    numEntries = inputLines.size();
+    snprintf(message, MAX_MESSAGE_LENGTH, "numEntries from inputLines size = %d", numEntries);
+    error->message(FLERR, message);
+
+    // Allocate memory for the data structure that will hold the input data
+    // and be passed to the compute_pressure code. This all has to be allocated
+    // on the heap since it is passed to code that runs outside this scope.
+    data = (double **) calloc(NUM_INPUT_DATA_COLUMNS, sizeof(double *));
+    for (int i = 0; i < NUM_INPUT_DATA_COLUMNS; ++i)
+    {
+      data[i] = (double *) calloc(numEntries,sizeof(double));
+    }
+    snprintf(message,MAX_MESSAGE_LENGTH, "INFO: Memory allocated for %d columns of data, each with %d entries",
+             NUM_INPUT_DATA_COLUMNS, numEntries);
 
     double stdVolumeInterval = 0.0;
     double currVolumeInterval = 0.0;
@@ -711,60 +722,59 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
     // The literature indicates getting this value right in the
     // general case can be pretty complicated. I don't think it
     // needs to be complicated here, though. At least based on the
-    // sample data I've seen where the volume values are fairly large.
+    // sample data I've seen where the volume values are fairly
+    // large.
     const double volumeIntervalTolerance = 0.001;
-    // Read the data from the file into our data array
-    int idx = 0;  // this value keeps track of the entries that pass validation
     int lineNum = 0;  // this value is only for  message
-    bool thisEntryValid = true;
+    int numBadVolumeIntervals = 0; // count these for message
+    float f1, f2;
+    int test_sscanf;
     for (int i = 0; i < inputLines.size(); i++) {
-      lineNum++;  // count every line processed, so lineNum messages are 1-based
-      const char* lineEx = inputLines.at(i).c_str();
-      test_sscanf = sscanf(lineEx," %f , %f ",&f1, &f2);
-      if (test_sscanf == 2) {
-        thisEntryValid = true;
-        data[VOLUME][idx] = (double) f1;
-        data[PRESSURE_CORRECTION][idx] = (double) f2;
-        if (idx == 1) {
-          // Compare first and second data values to determine standard interval
-          stdVolumeInterval = data[VOLUME][idx] - data[VOLUME][idx-1];
+     lineNum++;  // count each line processed now so lineNum messages can be 1-based
+     //++n_entries;
+      test_sscanf = sscanf(inputLines.at(i).c_str()," %f , %f ",&f1, &f2);
+      if (test_sscanf == 2)
+      {
+        data[VOLUME][i] = (double) f1;
+        data[PRESSURE_CORRECTION][i] = (double) f2;
+        if (i == 1)
+        {
+          // second entry is used to compute validation interval
+          stdVolumeInterval = data[VOLUME][i] - data[VOLUME][i-1];
         }
-        else if (idx > 1) {
-          // Every interval thereafter should match the standard
-          currVolumeInterval = data[VOLUME][idx] - data[VOLUME][idx-1];
+        else if (i > 1)
+        {
+          // after second entry, all intervals are validated
+          currVolumeInterval = data[VOLUME][i] - data[VOLUME][i-1];
           if (fabs(currVolumeInterval - stdVolumeInterval) > volumeIntervalTolerance) {
-            snprintf(badDataMsg,MAX_MESSAGE_LENGTH,
+            snprintf(message,MAX_MESSAGE_LENGTH,
                      "BAD VOLUME INTERVAL: spline analysis requires uniform"
                      " volume distribution, found inconsistent volume"
                      " differential, line %d of file %s\n\tline: %s",
-                     lineNum,filename,lineEx);
-            error->message(FLERR,badDataMsg);
-            thisEntryValid = false;
+                     lineNum,filename,inputLines.at(i).c_str());
+            error->message(FLERR,message);
             badInput = true;
           }
-        }
-        // no else -- first entry gets no validation
-
-        if (thisEntryValid) {
-          // Only increment the index if the line passes validation
-          idx++;
+		          // no else -- i = 0, first entry is not validated
         }
       }
       else
       {
-        snprintf(badDataMsg,MAX_MESSAGE_LENGTH,
+        snprintf(message,MAX_MESSAGE_LENGTH,
                  "BAD INPUT FORMAT: did not find 2 comma separated numeric"
                  " values in line %d of file %s\n\tline: %s",
-                 lineNum,filename,lineEx);
-        error->message(FLERR,badDataMsg);
+                 lineNum,filename,line);
+        error->message(FLERR,message);
         badInput = true;
       }
+      if (badInput)
+      {
+        numBadVolumeIntervals++;
+        badInput = false;
+      }
     }
-    snprintf(message,MAX_MESSAGE_LENGTH, "INFO: Found %d valid entries", idx);
+    snprintf(message, MAX_MESSAGE_LENGTH, "total number bad volume intervals = %d", numBadVolumeIntervals);
     error->message(FLERR, message);
-
-    // The final value of idx, above, is the count of valid values we got from the file
-    numValidEntries = idx;
   }
   else {
     char errmsg[MAX_MESSAGE_LENGTH];
@@ -772,24 +782,15 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
     error->all(FLERR,errmsg);
   }
 
-  if (badInput) {
-    char errmsg[MAX_MESSAGE_LENGTH];
-    snprintf(errmsg,MAX_MESSAGE_LENGTH,
-             "Bad volume / pressure-correction data: %s\nSee details above",filename);
-    error->all(FLERR,errmsg);
-  }
 
   if (p_basis_type == BASIS_LINEAR_SPLINE)
   {
     // build_linear_splines
-    // I'd prefer to put this code in a function but it appears that,
-    // as of now, to pass dataEx as a function argument would require adding
-    // #include <vector> to one of the main header files. I'm not sure
-    // team-LAMMPS is ready for that
+    // undone -- consider putting this code in a function as the build_cubic_splines is
     splines = (double **) calloc(NUM_LINEAR_SPLINE_COLUMNS,sizeof(double *));
-    splines[VOLUME] = (double *) calloc(numValidEntries,sizeof(double));
-    splines[PRESSURE_CORRECTION] = (double *) calloc(numValidEntries,sizeof(double));
-    for (int idxb = 0; idxb < numValidEntries; ++idxb)
+    splines[VOLUME] = (double *) calloc(numEntries,sizeof(double));
+    splines[PRESSURE_CORRECTION] = (double *) calloc(numEntries,sizeof(double));
+    for (int idxb = 0; idxb < numEntries; ++idxb)
     {
       splines[VOLUME][idxb] = data[VOLUME][idxb];
       splines[PRESSURE_CORRECTION][idxb] = data[PRESSURE_CORRECTION][idxb];
@@ -797,8 +798,14 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
   }
   else if (p_basis_type == BASIS_CUBIC_SPLINE)
   {
-    spline_length = numValidEntries;
+    spline_length = numEntries;
+    snprintf(message,MAX_MESSAGE_LENGTH,
+             "INFO: about to call build_cubic_splines, spline_length = %d", spline_length);
+    error->message(FLERR, message);
     build_cubic_splines(data);
+    // TODO: I have NO idea why we have to adjust this here and not above.
+    // Are the cubic splines picket fence posts? And so one less of them than number of data points?
+    numEntries -= 1;
   }
   else
   {
@@ -808,46 +815,44 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
     error->all(FLERR,message);
   }
   // cleanup
-  // TODO: Axel applied this memory cleanup at some point after
-  // main development. I suspect it does the right thing
-  // for p_basis_type analytic or linear but not for cubic
-  // Need to verify that and fix
   for (int i = 0; i < NUM_INPUT_DATA_COLUMNS; ++i) {
     free(data[i]);
   }
   free(data);
-  return numValidEntries;
+  return numEntries;
 }
 
 void FixBocs::build_cubic_splines( double **data )
 {
-  char msg[128];
-  sprintf(msg, "INFO: in build_cubic_splines, spline_length = %d", spline_length);
-  error->message(FLERR, msg);
+  char message[MAX_MESSAGE_LENGTH];
+  snprintf(message, MAX_MESSAGE_LENGTH, "INFO: entering build_cubic_splines, spline_length = %d", spline_length);
+  error->message(FLERR, message);
 
   double *a, *b, *d, *h, *alpha, *c, *l, *mu, *z;
   int n = spline_length;
-  double alpha_i;
   a = (double *) calloc(n,sizeof(double));
   b = (double *) calloc(n+1,sizeof(double));
   c = (double *) calloc(n+1,sizeof(double));
+
+
   d = (double *) calloc(n+1,sizeof(double));
   h = (double *) calloc(n,sizeof(double));
   alpha = (double *) calloc(n,sizeof(double));
   l = (double *) calloc(n,sizeof(double));
   mu = (double *) calloc(n,sizeof(double));
   z = (double *) calloc(n,sizeof(double));
+  error->message(FLERR, "INFO: memory allocations completed");
+
   for (int i=0; i<n; i++)
   {
     a[i] = data[1][i];
     b[i] = 0.0;
     d[i] = 0.0;
-
     if (i<(n-1))
     {
       h[i] = (data[0][i+1] - data[0][i]);
     }
-
+    double alpha_i;
     if (i>1 && i<(n-1))
     {
       alpha_i = (3.0 / h[i]) * ( data[1][i+1] - data[1][i]) - (3.0 / h[i-1] )
@@ -855,6 +860,8 @@ void FixBocs::build_cubic_splines( double **data )
       alpha[i-1] = alpha_i;
     }
   }
+  error->message(FLERR, "past a, b, d, h, alpha population loop");
+
   l[0] = 1.0;
   mu[0] = 0.0;
   z[0] = 0.0;
@@ -868,6 +875,7 @@ void FixBocs::build_cubic_splines( double **data )
   l[n-1] = 1.0;
   mu[n-1] = 0.0;
   z[n-1] = 0.0;
+  error->message(FLERR, "past l, mu, z are populated");
 
   b[n] = 0.0;
   c[n] = 0.0;
@@ -881,6 +889,7 @@ void FixBocs::build_cubic_splines( double **data )
 
     d[j] = (c[j+1]-c[j])/(3.0 * h[j]);
   }
+  error->message(FLERR, "past c, b, d are populated");
   splines = (double **) calloc(5,sizeof(double *));
 
   int idx;
@@ -889,6 +898,7 @@ void FixBocs::build_cubic_splines( double **data )
     splines[idx] = (double *) calloc(n-1,sizeof(double));
   }
   idx = 0;
+  int numSplines = 0;
   for ( idx = 0; idx < n - 1; ++idx)
   {
     splines[1][idx] = a[idx];
@@ -896,10 +906,12 @@ void FixBocs::build_cubic_splines( double **data )
     splines[3][idx] = c[idx];
     splines[4][idx] = d[idx];
     splines[0][idx] = data[0][idx];
+    numSplines++;
   }
-  sprintf(msg, "INFO: build_cubic_splines complete, spline_length = %d", spline_length);
-  error->message(FLERR, msg);
-
+  snprintf(message, MAX_MESSAGE_LENGTH, "INFO: leaving build_cubic_splines, spline_length = %d", spline_length);
+  error->message(FLERR, message);
+  snprintf(message, MAX_MESSAGE_LENGTH, "INFO: build_cubic_splines complete, number splines = %d", numSplines);
+  error->message(FLERR, message);
 }
 // END NJD MRD 2 functions
 
@@ -1597,12 +1609,12 @@ int FixBocs::modify_param(int narg, char **arg)
 
     if (p_match_flag) // NJD MRD
     {
-      if ( p_basis_type == 0 )
+      if ( p_basis_type == BASIS_ANALYTIC )
       {
         ((ComputePressureBocs *)pressure)->send_cg_info(p_basis_type, N_p_match,
                                                    p_match_coeffs, N_mol, vavg);
       }
-      else if ( p_basis_type == 1 || p_basis_type == 2  )
+      else if ( p_basis_type == BASIS_LINEAR_SPLINE || p_basis_type == BASIS_CUBIC_SPLINE  )
       {
         ((ComputePressureBocs *)pressure)->send_cg_info(p_basis_type, splines,
                                                                 spline_length );

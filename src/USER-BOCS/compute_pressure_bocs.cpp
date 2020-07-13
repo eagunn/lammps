@@ -212,13 +212,13 @@ double ComputePressureBocs::find_index(double * grid, double value)
 
   if (value >= grid[i] && value <= (grid[i] + spacing)) { return i; }
 
+  char errmsg[256];
+  snprintf(errmsg,256,"find_index could not find value in grid for value: %f",value);
+  error->all(FLERR,errmsg);
   for (int i = 0; i < gridsize; ++i)
   {
     fprintf(stderr, "grid %d: %f\n",i,grid[i]);
   }
-  char * errmsg = (char *) calloc(100,sizeof(char));
-  sprintf(errmsg,"Value %f does not fall within spline grid.\n",value);
-  error->all(FLERR,errmsg);
 
   exit(1);
 }
