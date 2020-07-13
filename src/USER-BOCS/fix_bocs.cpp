@@ -80,8 +80,10 @@ const int NUM_INPUT_DATA_COLUMNS = 2;     // columns in the pressure correction 
 const int NUM_LINEAR_SPLINE_COLUMNS = 2;  // linear spline columns passed to compute
 const int NUM_CUBIC_SPLINE_COLUMNS = 5;   // cubic spline columns passed to compute
 
-// NB: Keep error and warning messages less than 255 chars long.
-const int MAX_MESSAGE_LENGTH = 256;
+// NB:
+// - Keep error and warning messages less than 255 chars long.
+// - Allocate your char 1 char longer than this
+const int MAX_MESSAGE_LENGTH = 255;
 
 /* ----------------------------------------------------------------------
    NVT,NPH,NPT integrators for improved Nose-Hoover equations of motion
@@ -652,11 +654,12 @@ void FixBocs::init()
 int FixBocs::read_F_table( char *filename, int p_basis_type )
 {
   // NB: Keep your messages (error, warning, message) shorter than 255 chars
-  char message[MAX_MESSAGE_LENGTH];
+  char message[MAX_MESSAGE_LENGTH+1];
 
-  //FILE *fpi;
-  //int n_entries = 0;
-  double **data;
+  //double **data;
+  std::vector<double> volumeVec;
+  std::vector<double> pressureVec;
+  std::vector<std::vector<double>> dataEx;
 
   // Data file lines hold two floating point numbers.
   // Line length we allocate should be long enough without
@@ -692,7 +695,7 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
     snprintf(message,MAX_MESSAGE_LENGTH,"INFO: last line is: %s",
              inputLines[inputLines.size()-1].c_str());
     error->message(FLERR, message);
-    error->message(FLERR, "INFO: About to allocate memory for data[]");
+    //error->message(FLERR, "INFO: About to allocate memory for data[]");
 
     snprintf(message,MAX_MESSAGE_LENGTH,"INFO: NUM_INPUT_DATA_COLUMNS = %d",
              NUM_INPUT_DATA_COLUMNS);
@@ -705,6 +708,7 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
     snprintf(message, MAX_MESSAGE_LENGTH, "numEntries from inputLines size = %d", numEntries);
     error->message(FLERR, message);
 
+/* Don't need any of this if we use vector
     // Allocate memory for the data structure that will hold the input data
     // and be passed to the compute_pressure code. This all has to be allocated
     // on the heap since it is passed to code that runs outside this scope.
@@ -715,6 +719,17 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
     }
     snprintf(message,MAX_MESSAGE_LENGTH, "INFO: Memory allocated for %d columns of data, each with %d entries",
              NUM_INPUT_DATA_COLUMNS, numEntries);
+not for vector */
+
+    // Initializing the size of vectors is not require.
+    // The structures will resize as you push values into them.
+    // But for largish data sets where you do know the value,
+    // it is more efficient.
+    volumeVec.resize(numEntries);
+    pressureVec.resize(numEntries);
+    dataEx.resize(NUM_INPUT_DATA_COLUMNS);
+    dataEx[VOLUME] = volumeVec;
+    dataEx[PRESSURE_CORRECTION] = pressureVec;
 
     double stdVolumeInterval = 0.0;
     double currVolumeInterval = 0.0;
@@ -735,17 +750,21 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
       test_sscanf = sscanf(inputLines.at(i).c_str()," %f , %f ",&f1, &f2);
       if (test_sscanf == 2)
       {
-        data[VOLUME][i] = (double) f1;
-        data[PRESSURE_CORRECTION][i] = (double) f2;
+        //data[VOLUME][i] = (double) f1;
+        //data[PRESSURE_CORRECTION][i] = (double) f2;
+        dataEx[VOLUME][i] = (double)f1;
+        dataEx[PRESSURE_CORRECTION][i] = (double)f2;
         if (i == 1)
         {
           // second entry is used to compute validation interval
-          stdVolumeInterval = data[VOLUME][i] - data[VOLUME][i-1];
+          //stdVolumeInterval = data[VOLUME][i] - data[VOLUME][i-1];
+          stdVolumeInterval = dataEx[VOLUME][i] - dataEx[VOLUME][i-1];
         }
         else if (i > 1)
         {
           // after second entry, all intervals are validated
-          currVolumeInterval = data[VOLUME][i] - data[VOLUME][i-1];
+          //currVolumeInterval = data[VOLUME][i] - data[VOLUME][i-1];
+          currVolumeInterval = dataEx[VOLUME][i] - dataEx[VOLUME][i-1];
           if (fabs(currVolumeInterval - stdVolumeInterval) > volumeIntervalTolerance) {
             snprintf(message,MAX_MESSAGE_LENGTH,
                      "BAD VOLUME INTERVAL: spline analysis requires uniform"
@@ -792,8 +811,10 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
     splines[PRESSURE_CORRECTION] = (double *) calloc(numEntries,sizeof(double));
     for (int idxb = 0; idxb < numEntries; ++idxb)
     {
-      splines[VOLUME][idxb] = data[VOLUME][idxb];
-      splines[PRESSURE_CORRECTION][idxb] = data[PRESSURE_CORRECTION][idxb];
+      //splines[VOLUME][idxb] = data[VOLUME][idxb];
+      //splines[PRESSURE_CORRECTION][idxb] = data[PRESSURE_CORRECTION][idxb];
+      splines[VOLUME][idxb] = dataEx[VOLUME][idxb];
+      splines[PRESSURE_CORRECTION][idxb] = dataEx[PRESSURE_CORRECTION][idxb];
     }
   }
   else if (p_basis_type == BASIS_CUBIC_SPLINE)
@@ -802,9 +823,12 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
     snprintf(message,MAX_MESSAGE_LENGTH,
              "INFO: about to call build_cubic_splines, spline_length = %d", spline_length);
     error->message(FLERR, message);
-    build_cubic_splines(data);
-    // TODO: I have NO idea why we have to adjust this here and not above.
-    // Are the cubic splines picket fence posts? And so one less of them than number of data points?
+    //build_cubic_splines(data);
+    build_cubic_splinesEx(dataEx);
+    // Cubic splines apparently have one less entry than the number of data
+    // points.
+    // TODO: have build_cubic_splines return this value rather than magically hacking
+    // it here.
     numEntries -= 1;
   }
   else
@@ -814,17 +838,20 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
              p_basis_type);
     error->all(FLERR,message);
   }
+  /*
   // cleanup
   for (int i = 0; i < NUM_INPUT_DATA_COLUMNS; ++i) {
     free(data[i]);
   }
   free(data);
+   */
   return numEntries;
 }
 
+/*
 void FixBocs::build_cubic_splines( double **data )
 {
-  char message[MAX_MESSAGE_LENGTH];
+  char message[MAX_MESSAGE_LENGTH+1];
   snprintf(message, MAX_MESSAGE_LENGTH, "INFO: entering build_cubic_splines, spline_length = %d", spline_length);
   error->message(FLERR, message);
 
@@ -833,8 +860,6 @@ void FixBocs::build_cubic_splines( double **data )
   a = (double *) calloc(n,sizeof(double));
   b = (double *) calloc(n+1,sizeof(double));
   c = (double *) calloc(n+1,sizeof(double));
-
-
   d = (double *) calloc(n+1,sizeof(double));
   h = (double *) calloc(n,sizeof(double));
   alpha = (double *) calloc(n,sizeof(double));
@@ -890,10 +915,10 @@ void FixBocs::build_cubic_splines( double **data )
     d[j] = (c[j+1]-c[j])/(3.0 * h[j]);
   }
   error->message(FLERR, "past c, b, d are populated");
-  splines = (double **) calloc(5,sizeof(double *));
+  splines = (double **) calloc(NUM_CUBIC_SPLINE_COLUMNS,sizeof(double *));
 
   int idx;
-  for ( idx = 0; idx < 5; ++idx)
+  for ( idx = 0; idx < NUM_CUBIC_SPLINE_COLUMNS; ++idx)
   {
     splines[idx] = (double *) calloc(n-1,sizeof(double));
   }
@@ -901,11 +926,101 @@ void FixBocs::build_cubic_splines( double **data )
   int numSplines = 0;
   for ( idx = 0; idx < n - 1; ++idx)
   {
+    splines[0][idx] = data[0][idx];
     splines[1][idx] = a[idx];
     splines[2][idx] = b[idx];
     splines[3][idx] = c[idx];
     splines[4][idx] = d[idx];
-    splines[0][idx] = data[0][idx];
+    numSplines++;
+  }
+  snprintf(message, MAX_MESSAGE_LENGTH, "INFO: leaving build_cubic_splines, spline_length = %d", spline_length);
+  error->message(FLERR, message);
+  snprintf(message, MAX_MESSAGE_LENGTH, "INFO: build_cubic_splines complete, number splines = %d", numSplines);
+  error->message(FLERR, message);
+}
+*/
+void FixBocs::build_cubic_splinesEx( std::vector<std::vector<double>> dataEx )
+{
+  char message[MAX_MESSAGE_LENGTH+1];
+  snprintf(message, MAX_MESSAGE_LENGTH, "INFO: entering build_cubic_splines, spline_length = %d", spline_length);
+  error->message(FLERR, message);
+
+  double *a, *b, *d, *h, *alpha, *c, *l, *mu, *z;
+  int n = spline_length;
+  a = (double *) calloc(n,sizeof(double));
+  b = (double *) calloc(n+1,sizeof(double));
+  c = (double *) calloc(n+1,sizeof(double));
+  d = (double *) calloc(n+1,sizeof(double));
+  h = (double *) calloc(n,sizeof(double));
+  alpha = (double *) calloc(n,sizeof(double));
+  l = (double *) calloc(n,sizeof(double));
+  mu = (double *) calloc(n,sizeof(double));
+  z = (double *) calloc(n,sizeof(double));
+  error->message(FLERR, "INFO: memory allocations completed");
+
+  for (int i=0; i<n; i++)
+  {
+    a[i] = dataEx[1][i];
+    b[i] = 0.0;
+    d[i] = 0.0;
+    if (i<(n-1))
+    {
+      h[i] = (dataEx[0][i+1] - dataEx[0][i]);
+    }
+    double alpha_i;
+    if (i>1 && i<(n-1))
+    {
+      alpha_i = (3.0 / h[i]) * ( dataEx[1][i+1] - dataEx[1][i]) - (3.0 / h[i-1] )
+                                                              * ( dataEx[1][i] - dataEx[1][i-1] );
+      alpha[i-1] = alpha_i;
+    }
+  }
+  error->message(FLERR, "past a, b, d, h, alpha population loop");
+
+  l[0] = 1.0;
+  mu[0] = 0.0;
+  z[0] = 0.0;
+
+  for (int i=1; i<n-1; i++)
+  {
+    l[i] = 2*(dataEx[0][i+1] - dataEx[0][i-1]) - h[i-1] * mu[i-1];
+    mu[i] = h[i]/l[i];
+    z[i] = (alpha[i] - h[i-1] * z[i-1]) / l[i];
+  }
+  l[n-1] = 1.0;
+  mu[n-1] = 0.0;
+  z[n-1] = 0.0;
+  error->message(FLERR, "past l, mu, z are populated");
+
+  b[n] = 0.0;
+  c[n] = 0.0;
+  d[n] = 0.0;
+
+  for(int j=n-1; j>=0; j--)
+  {
+    c[j] = z[j] - mu[j]*c[j+1];
+
+    b[j] = (a[j+1]-a[j])/h[j] - h[j]*(c[j+1] + 2.0 * c[j])/3.0;
+
+    d[j] = (c[j+1]-c[j])/(3.0 * h[j]);
+  }
+  error->message(FLERR, "past c, b, d are populated");
+  splines = (double **) calloc(NUM_CUBIC_SPLINE_COLUMNS,sizeof(double *));
+
+  int idx;
+  for ( idx = 0; idx < NUM_CUBIC_SPLINE_COLUMNS; ++idx)
+  {
+    splines[idx] = (double *) calloc(n-1,sizeof(double));
+  }
+  idx = 0;
+  int numSplines = 0;
+  for ( idx = 0; idx < n - 1; ++idx)
+  {
+    splines[0][idx] = dataEx[0][idx];
+    splines[1][idx] = a[idx];
+    splines[2][idx] = b[idx];
+    splines[3][idx] = c[idx];
+    splines[4][idx] = d[idx];
     numSplines++;
   }
   snprintf(message, MAX_MESSAGE_LENGTH, "INFO: leaving build_cubic_splines, spline_length = %d", spline_length);

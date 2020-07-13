@@ -25,7 +25,7 @@ FixStyle(bocs,FixBocs)
 #define LMP_FIX_BOCS_H
 
 #include "fix.h"
-
+#include <vector>
 
 namespace LAMMPS_NS {
 
@@ -151,7 +151,8 @@ class FixBocs : public Fix {
   void nhc_press_integrate();
 
   int read_F_table(char *, int);
-  void build_cubic_splines(double **);
+  //void build_cubic_splines(double **);
+  void build_cubic_splinesEx(std::vector<std::vector<double>>);
 
   virtual void nve_x();            // may be overwritten by child classes
   virtual void nve_v();
