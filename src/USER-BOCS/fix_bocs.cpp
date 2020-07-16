@@ -77,8 +77,6 @@ struct PressureCorrectionInput {
 };
 
 const int NUM_INPUT_DATA_COLUMNS = 2;     // columns in the pressure correction file
-const int NUM_LINEAR_SPLINE_COLUMNS = 2;  // linear spline columns passed to compute
-const int NUM_CUBIC_SPLINE_COLUMNS = 5;   // cubic spline columns passed to compute
 
 // NB:
 // - Keep error and warning messages less than 255 chars long.
@@ -805,7 +803,8 @@ not for vector */
   if (p_basis_type == BASIS_LINEAR_SPLINE)
   {
     // build_linear_splines
-    // undone -- consider putting this code in a function as the build_cubic_splines is
+    // TODO: Put this code in a function similar to build_cubic_splines
+    // have it return correct numEntries
     splines = (double **) calloc(NUM_LINEAR_SPLINE_COLUMNS,sizeof(double *));
     splines[VOLUME] = (double *) calloc(numEntries,sizeof(double));
     splines[PRESSURE_CORRECTION] = (double *) calloc(numEntries,sizeof(double));
@@ -824,6 +823,7 @@ not for vector */
              "INFO: about to call build_cubic_splines, spline_length = %d", spline_length);
     error->message(FLERR, message);
     //build_cubic_splines(data);
+    //xxx change build_cubic_splinesEx to return numEntries
     build_cubic_splinesEx(dataEx);
     // Cubic splines apparently have one less entry than the number of data
     // points.
@@ -939,6 +939,7 @@ void FixBocs::build_cubic_splines( double **data )
   error->message(FLERR, message);
 }
 */
+// TODO: change this to return an int -- number of splines
 void FixBocs::build_cubic_splinesEx( std::vector<std::vector<double>> dataEx )
 {
   char message[MAX_MESSAGE_LENGTH+1];
@@ -1731,13 +1732,14 @@ int FixBocs::modify_param(int narg, char **arg)
       }
       else if ( p_basis_type == BASIS_LINEAR_SPLINE || p_basis_type == BASIS_CUBIC_SPLINE  )
       {
-        ((ComputePressureBocs *)pressure)->send_cg_info(p_basis_type, splines,
-                                                                spline_length );
+        ((ComputePressureBocs *)pressure)->send_cg_info(p_basis_type, splines, spline_length );
       }
     }
 
     if (pressure->pressflag == 0)
-      error->all(FLERR,"Fix_modify pressure ID does not compute pressure");
+    {
+      error->all(FLERR, "Fix_modify pressure ID does not compute pressure");
+    }
     return 2;
   }
 
