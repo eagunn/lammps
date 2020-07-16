@@ -32,6 +32,9 @@ namespace LAMMPS_NS {
   // Enumerate the data file column names to improve readability
   enum{VOLUME, PRESSURE_CORRECTION};
 
+  const int NUM_LINEAR_SPLINE_COLUMNS = 2;  // linear spline columns passed to compute
+  const int NUM_CUBIC_SPLINE_COLUMNS = 5;   // cubic spline columns passed to compute
+
   // ComputePressure -> ComputePressureBocs MRD NJD
 class ComputePressureBocs : public Compute {
  public:
