@@ -845,6 +845,25 @@ not for vector */
   }
   free(data);
    */
+
+  // 20200717 -- valgrind shows a huge number of "still reachable"
+  // blocks after the code above runs. According to valgrind, those blocks
+  // are not lost memory but simply memory maintained by the stl vector code.
+  // The stl holds on to pools of its own memory, often
+  // until process shutdown, in case it needs to re-use it
+  // for more vectors. It's an optimization thing.
+  // This trick is said to force the blocks to be released.
+  // Even if it works, though, it may not be a good idea since
+  // it simply makes an apparent problem go away at the cost of
+  // doing a bit more work.
+  // Need to decide to either keep this active, if we think the
+  // clean valgrind report is a virtue, or leave it here commented
+  // out in case anyone else needs it later to clean up
+  // valgrind output.
+  std::vector<double>().swap(volumeVec);
+  std::vector<double>().swap(pressureVec);
+  std::vector<std::vector<double>>().swap(dataEx);
+
   return numEntries;
 }
 
@@ -948,7 +967,12 @@ void FixBocs::build_cubic_splinesEx( std::vector<std::vector<double>> dataEx )
 
   double *a, *b, *d, *h, *alpha, *c, *l, *mu, *z;
   int n = spline_length;
-  a = (double *) calloc(n,sizeof(double));
+  // 2020-07-17
+  // valgrind says that we read/write a[n] down in the
+  // for(int j=n-1; j>=0; j--) loop below
+  // and I agree. So we have to allocate enough memory for that.
+  // OR we should change the loop start above to j=n-2.
+  a = (double *) calloc(n+1,sizeof(double));
   b = (double *) calloc(n+1,sizeof(double));
   c = (double *) calloc(n+1,sizeof(double));
   d = (double *) calloc(n+1,sizeof(double));
@@ -993,6 +1017,10 @@ void FixBocs::build_cubic_splinesEx( std::vector<std::vector<double>> dataEx )
   z[n-1] = 0.0;
   error->message(FLERR, "past l, mu, z are populated");
 
+  // 2020-07-17 We've been using an uninitialized value for a[n]
+  // That seems like a bad idea. This may not be the right value
+  // but its a value.
+  a[n] = 0.0;
   b[n] = 0.0;
   c[n] = 0.0;
   d[n] = 0.0;
