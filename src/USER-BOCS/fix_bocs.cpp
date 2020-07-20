@@ -706,23 +706,10 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
     snprintf(message, MAX_MESSAGE_LENGTH, "numEntries from inputLines size = %d", numEntries);
     error->message(FLERR, message);
 
-/* Don't need any of this if we use vector
-    // Allocate memory for the data structure that will hold the input data
-    // and be passed to the compute_pressure code. This all has to be allocated
-    // on the heap since it is passed to code that runs outside this scope.
-    data = (double **) calloc(NUM_INPUT_DATA_COLUMNS, sizeof(double *));
-    for (int i = 0; i < NUM_INPUT_DATA_COLUMNS; ++i)
-    {
-      data[i] = (double *) calloc(numEntries,sizeof(double));
-    }
-    snprintf(message,MAX_MESSAGE_LENGTH, "INFO: Memory allocated for %d columns of data, each with %d entries",
-             NUM_INPUT_DATA_COLUMNS, numEntries);
-not for vector */
-
-    // Initializing the size of vectors is not require.
+    // Initializing the size of vectors is not required.
     // The structures will resize as you push values into them.
     // But for largish data sets where you do know the value,
-    // it is more efficient.
+    // it is more efficient to do one upfront allocation.
     volumeVec.resize(numEntries);
     pressureVec.resize(numEntries);
     dataEx.resize(NUM_INPUT_DATA_COLUMNS);
@@ -802,19 +789,7 @@ not for vector */
 
   if (p_basis_type == BASIS_LINEAR_SPLINE)
   {
-    // build_linear_splines
-    // TODO: Put this code in a function similar to build_cubic_splines
-    // have it return correct numEntries
-    splines = (double **) calloc(NUM_LINEAR_SPLINE_COLUMNS,sizeof(double *));
-    splines[VOLUME] = (double *) calloc(numEntries,sizeof(double));
-    splines[PRESSURE_CORRECTION] = (double *) calloc(numEntries,sizeof(double));
-    for (int idxb = 0; idxb < numEntries; ++idxb)
-    {
-      //splines[VOLUME][idxb] = data[VOLUME][idxb];
-      //splines[PRESSURE_CORRECTION][idxb] = data[PRESSURE_CORRECTION][idxb];
-      splines[VOLUME][idxb] = dataEx[VOLUME][idxb];
-      splines[PRESSURE_CORRECTION][idxb] = dataEx[PRESSURE_CORRECTION][idxb];
-    }
+    numEntries = build_linear_splines(dataEx);
   }
   else if (p_basis_type == BASIS_CUBIC_SPLINE)
   {
@@ -822,14 +797,7 @@ not for vector */
     snprintf(message,MAX_MESSAGE_LENGTH,
              "INFO: about to call build_cubic_splines, spline_length = %d", spline_length);
     error->message(FLERR, message);
-    //build_cubic_splines(data);
-    //xxx change build_cubic_splinesEx to return numEntries
-    build_cubic_splinesEx(dataEx);
-    // Cubic splines apparently have one less entry than the number of data
-    // points.
-    // TODO: have build_cubic_splines return this value rather than magically hacking
-    // it here.
-    numEntries -= 1;
+    numEntries = build_cubic_splinesEx(dataEx);
   }
   else
   {
@@ -838,13 +806,6 @@ not for vector */
              p_basis_type);
     error->all(FLERR,message);
   }
-  /*
-  // cleanup
-  for (int i = 0; i < NUM_INPUT_DATA_COLUMNS; ++i) {
-    free(data[i]);
-  }
-  free(data);
-   */
 
   // 20200717 -- valgrind shows a huge number of "still reachable"
   // blocks after the code above runs. According to valgrind, those blocks
@@ -867,99 +828,25 @@ not for vector */
   return numEntries;
 }
 
-/*
-void FixBocs::build_cubic_splines( double **data )
-{
-  char message[MAX_MESSAGE_LENGTH+1];
-  snprintf(message, MAX_MESSAGE_LENGTH, "INFO: entering build_cubic_splines, spline_length = %d", spline_length);
+int FixBocs::build_linear_splines( std::vector<std::vector<double>> dataEx ) {
+  char message[MAX_MESSAGE_LENGTH + 1];
+  snprintf(message, MAX_MESSAGE_LENGTH, "INFO: entering build_linear_splines, spline_length = %d", spline_length);
   error->message(FLERR, message);
 
-  double *a, *b, *d, *h, *alpha, *c, *l, *mu, *z;
-  int n = spline_length;
-  a = (double *) calloc(n,sizeof(double));
-  b = (double *) calloc(n+1,sizeof(double));
-  c = (double *) calloc(n+1,sizeof(double));
-  d = (double *) calloc(n+1,sizeof(double));
-  h = (double *) calloc(n,sizeof(double));
-  alpha = (double *) calloc(n,sizeof(double));
-  l = (double *) calloc(n,sizeof(double));
-  mu = (double *) calloc(n,sizeof(double));
-  z = (double *) calloc(n,sizeof(double));
-  error->message(FLERR, "INFO: memory allocations completed");
+  splines = (double **) calloc(NUM_LINEAR_SPLINE_COLUMNS,sizeof(double *));
+  splines[VOLUME] = (double *) calloc(spline_length,sizeof(double));
+  splines[PRESSURE_CORRECTION] = (double *) calloc(spline_length,sizeof(double));
 
-  for (int i=0; i<n; i++)
+  for (int idxb = 0; idxb < spline_length; ++idxb)
   {
-    a[i] = data[1][i];
-    b[i] = 0.0;
-    d[i] = 0.0;
-    if (i<(n-1))
-    {
-      h[i] = (data[0][i+1] - data[0][i]);
-    }
-    double alpha_i;
-    if (i>1 && i<(n-1))
-    {
-      alpha_i = (3.0 / h[i]) * ( data[1][i+1] - data[1][i]) - (3.0 / h[i-1] )
-                                             * ( data[1][i] - data[1][i-1] );
-      alpha[i-1] = alpha_i;
-    }
+    splines[VOLUME][idxb] = dataEx[VOLUME][idxb];
+    splines[PRESSURE_CORRECTION][idxb] = dataEx[PRESSURE_CORRECTION][idxb];
   }
-  error->message(FLERR, "past a, b, d, h, alpha population loop");
-
-  l[0] = 1.0;
-  mu[0] = 0.0;
-  z[0] = 0.0;
-
-  for (int i=1; i<n-1; i++)
-  {
-    l[i] = 2*(data[0][i+1] - data[0][i-1]) - h[i-1] * mu[i-1];
-    mu[i] = h[i]/l[i];
-    z[i] = (alpha[i] - h[i-1] * z[i-1]) / l[i];
-  }
-  l[n-1] = 1.0;
-  mu[n-1] = 0.0;
-  z[n-1] = 0.0;
-  error->message(FLERR, "past l, mu, z are populated");
-
-  b[n] = 0.0;
-  c[n] = 0.0;
-  d[n] = 0.0;
-
-  for(int j=n-1; j>=0; j--)
-  {
-    c[j] = z[j] - mu[j]*c[j+1];
-
-    b[j] = (a[j+1]-a[j])/h[j] - h[j]*(c[j+1] + 2.0 * c[j])/3.0;
-
-    d[j] = (c[j+1]-c[j])/(3.0 * h[j]);
-  }
-  error->message(FLERR, "past c, b, d are populated");
-  splines = (double **) calloc(NUM_CUBIC_SPLINE_COLUMNS,sizeof(double *));
-
-  int idx;
-  for ( idx = 0; idx < NUM_CUBIC_SPLINE_COLUMNS; ++idx)
-  {
-    splines[idx] = (double *) calloc(n-1,sizeof(double));
-  }
-  idx = 0;
-  int numSplines = 0;
-  for ( idx = 0; idx < n - 1; ++idx)
-  {
-    splines[0][idx] = data[0][idx];
-    splines[1][idx] = a[idx];
-    splines[2][idx] = b[idx];
-    splines[3][idx] = c[idx];
-    splines[4][idx] = d[idx];
-    numSplines++;
-  }
-  snprintf(message, MAX_MESSAGE_LENGTH, "INFO: leaving build_cubic_splines, spline_length = %d", spline_length);
-  error->message(FLERR, message);
-  snprintf(message, MAX_MESSAGE_LENGTH, "INFO: build_cubic_splines complete, number splines = %d", numSplines);
-  error->message(FLERR, message);
+  // Tell the caller how many splines we created
+  return spline_length;
 }
-*/
-// TODO: change this to return an int -- number of splines
-void FixBocs::build_cubic_splinesEx( std::vector<std::vector<double>> dataEx )
+
+  int FixBocs::build_cubic_splinesEx( std::vector<std::vector<double>> dataEx )
 {
   char message[MAX_MESSAGE_LENGTH+1];
   snprintf(message, MAX_MESSAGE_LENGTH, "INFO: entering build_cubic_splines, spline_length = %d", spline_length);
@@ -971,7 +858,7 @@ void FixBocs::build_cubic_splinesEx( std::vector<std::vector<double>> dataEx )
   // valgrind says that we read/write a[n] down in the
   // for(int j=n-1; j>=0; j--) loop below
   // and I agree. So we have to allocate enough memory for that.
-  // OR we should change the loop start above to j=n-2.
+  // OR we should change the j loop start below to j=n-2.
   a = (double *) calloc(n+1,sizeof(double));
   b = (double *) calloc(n+1,sizeof(double));
   c = (double *) calloc(n+1,sizeof(double));
@@ -1056,6 +943,20 @@ void FixBocs::build_cubic_splinesEx( std::vector<std::vector<double>> dataEx )
   error->message(FLERR, message);
   snprintf(message, MAX_MESSAGE_LENGTH, "INFO: build_cubic_splines complete, number splines = %d", numSplines);
   error->message(FLERR, message);
+
+  // What goes up must come down. What we calloc, we must free
+  free(a);
+  free(b);
+  free(c);
+  free(d);
+  free(h);
+  free(alpha);
+  free(l);
+  free(mu);
+  free(z);
+
+  // Tell the caller how many splines we created
+  return numSplines;
 }
 // END NJD MRD 2 functions
 
