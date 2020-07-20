@@ -123,27 +123,24 @@ ComputePressureBocs::~ComputePressureBocs()
   delete [] vptr;
   if (phi_coeff) free(phi_coeff);
 
-  // Linear splines data that was passed in from fix_bocs must be
+  // Any splines data that was sent in from fix_bocs must be
   // freed here, not in fix_bocs where it was calloc'd
-
-  // If it was used, we must free memory in spline array before we terminate
   if (splines) {
-    error->all(FLERR,"in ComputePressureBocs destructor, about to free splines data\n");
     if (p_basis_type == BASIS_LINEAR_SPLINE) {
-      // splines is a 2 by numSplines matrix
+      // splines is a 2 by numSplines matrix of doubles
       for (int i = 0; i < NUM_LINEAR_SPLINE_COLUMNS; ++i) {
         free(splines[i]);
         splines[i] = NULL;
       }
     }
     else if (p_basis_type == BASIS_CUBIC_SPLINE) {
-      // splines is a 5 by numSplines matrix
+      // splines is a 5 by numSplines matrix of doubles
       for (int i = 0; i < NUM_CUBIC_SPLINE_COLUMNS; ++i) {
         free(splines[i]);
         splines[i] = NULL;
       }
     }
-    // else splines not an issue for analytic basis
+    // no else clause intentional; splines not an issue for analytic basis
     free(splines);
     splines = NULL;
   }
