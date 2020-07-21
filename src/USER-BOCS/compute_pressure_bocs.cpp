@@ -112,6 +112,8 @@ ComputePressureBocs::ComputePressureBocs(LAMMPS *lmp, int narg, char **arg) :
   vector = new double[size_vector];
   nvirial = 0;
   vptr = NULL;
+  splines = NULL;
+  spline_length = 0;
 }
 
 /* ---------------------------------------------------------------------- */
