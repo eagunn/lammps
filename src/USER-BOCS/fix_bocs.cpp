@@ -789,6 +789,7 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
 
   if (p_basis_type == BASIS_LINEAR_SPLINE)
   {
+    spline_length = numEntries;
     numEntries = build_linear_splines(dataEx);
   }
   else if (p_basis_type == BASIS_CUBIC_SPLINE)
@@ -818,8 +819,8 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
   // it simply makes an apparent problem go away at the cost of
   // doing a bit more work.
   // Need to decide to either keep this active, if we think the
-  // clean valgrind report is a virtue, or leave it here commented
-  // out in case anyone else needs it later to clean up
+  // clean valgrind report is a virtue, or leave it here, commented
+  // out, in case anyone else needs it later to clean up
   // valgrind output.
   std::vector<double>().swap(volumeVec);
   std::vector<double>().swap(pressureVec);
