@@ -15,28 +15,30 @@
 ------------------------------------------------------------------------- */
 
 #include "fix_bocs.h"
+
 #include <cstring>
 #include <cstdlib>
 #include <cmath>
 #include <vector>
+
 #include "atom.h"
+#include "citeme.h"
+#include "comm.h"
+#include "compute.h"
+#include "compute_pressure_bocs.h"
+#include "domain.h"
+#include "error.h"
+#include "fix_deform.h"
 #include "force.h"
 #include "group.h"
-#include "comm.h"
-#include "neighbor.h"
 #include "irregular.h"
-#include "modify.h"
-#include "fix_deform.h"
-#include "compute.h"
 #include "kspace.h"
-#include "update.h"
-#include "respa.h"
-#include "domain.h"
 #include "memory.h"
-#include "error.h"
-#include "citeme.h"
+#include "modify.h"
+#include "neighbor.h"
+#include "respa.h"
+#include "update.h"
 
-#include "compute_pressure_bocs.h"
 
 using namespace LAMMPS_NS;
 using namespace FixConst;
