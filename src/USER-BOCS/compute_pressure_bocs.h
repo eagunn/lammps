@@ -31,7 +31,7 @@ namespace LAMMPS_NS {
   enum{BASIS_ANALYTIC, BASIS_LINEAR_SPLINE, BASIS_CUBIC_SPLINE};
   // Enumerate the data file column names to improve readability
   enum{VOLUME, PRESSURE_CORRECTION};
-
+  // Declare names for the number of columns in the splines data structure to improve readability
   const int NUM_LINEAR_SPLINE_COLUMNS = 2;  // linear spline columns passed to compute
   const int NUM_CUBIC_SPLINE_COLUMNS = 5;   // cubic spline columns passed to compute
 
