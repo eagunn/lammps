@@ -15,23 +15,25 @@
 ------------------------------------------------------------------------- */
 
 #include "compute_pressure_bocs.h"
+
 #include <mpi.h>
 #include <cmath>
 #include <cstring>
 #include <cstdlib>
+
+#include "angle.h"
 #include "atom.h"
-#include "update.h"
+#include "bond.h"
+#include "dihedral.h"
 #include "domain.h"
-#include "modify.h"
+#include "error.h"
 #include "fix.h"
 #include "force.h"
-#include "pair.h"
-#include "bond.h"
-#include "angle.h"
-#include "dihedral.h"
 #include "improper.h"
 #include "kspace.h"
-#include "error.h"
+#include "modify.h"
+#include "pair.h"
+#include "update.h"
 
 
 using namespace LAMMPS_NS;
