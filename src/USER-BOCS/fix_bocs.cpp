@@ -777,7 +777,7 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
   else if (p_basis_type == BASIS_CUBIC_SPLINE)
   {
     spline_length = numEntries;
-    numEntries = build_cubic_splinesEx(data);
+    numEntries = build_cubic_splines(data);
   }
   else
   {
@@ -812,8 +812,8 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
 
 int FixBocs::build_linear_splines( std::vector<std::vector<double>> data ) {
   char message[MAX_MESSAGE_LENGTH + 1];
-  snprintf(message, MAX_MESSAGE_LENGTH, "INFO: entering build_linear_splines, spline_length = %d", spline_length);
-  error->message(FLERR, message);
+  //snprintf(message, MAX_MESSAGE_LENGTH, "INFO: entering build_linear_splines, spline_length = %d", spline_length);
+  //error->message(FLERR, message);
 
   splines = (double **) calloc(NUM_LINEAR_SPLINE_COLUMNS,sizeof(double *));
   splines[VOLUME] = (double *) calloc(spline_length,sizeof(double));
@@ -824,15 +824,18 @@ int FixBocs::build_linear_splines( std::vector<std::vector<double>> data ) {
     splines[VOLUME][idxb] = data[VOLUME][idxb];
     splines[PRESSURE_CORRECTION][idxb] = data[PRESSURE_CORRECTION][idxb];
   }
-  // Tell the caller how many splines we created
+
+  snprintf(message, MAX_MESSAGE_LENGTH, "INFO: leaving build_linear_splines, spline_length = %d", spline_length);
+  error->message(FLERR, message);
+
   return spline_length;
 }
 
-  int FixBocs::build_cubic_splinesEx( std::vector<std::vector<double>> data )
+  int FixBocs::build_cubic_splines(std::vector<std::vector<double>> data )
 {
   char message[MAX_MESSAGE_LENGTH+1];
-  snprintf(message, MAX_MESSAGE_LENGTH, "INFO: entering build_cubic_splines, spline_length = %d", spline_length);
-  error->message(FLERR, message);
+  //snprintf(message, MAX_MESSAGE_LENGTH, "INFO: entering build_cubic_splines, spline_length = %d", spline_length);
+  //error->message(FLERR, message);
 
   double *a, *b, *d, *h, *alpha, *c, *l, *mu, *z;
   int n = spline_length;
@@ -850,7 +853,6 @@ int FixBocs::build_linear_splines( std::vector<std::vector<double>> data ) {
   l = (double *) calloc(n,sizeof(double));
   mu = (double *) calloc(n,sizeof(double));
   z = (double *) calloc(n,sizeof(double));
-  error->message(FLERR, "INFO: memory allocations completed");
 
   for (int i=0; i<n; i++)
   {
@@ -917,8 +919,6 @@ int FixBocs::build_linear_splines( std::vector<std::vector<double>> data ) {
     splines[4][idx] = d[idx];
     numSplines++;
   }
-  snprintf(message, MAX_MESSAGE_LENGTH, "INFO: leaving build_cubic_splines, spline_length = %d", spline_length);
-  error->message(FLERR, message);
 
   // What goes up must come down. What we calloc, we must free
   free(a);
@@ -930,6 +930,9 @@ int FixBocs::build_linear_splines( std::vector<std::vector<double>> data ) {
   free(l);
   free(mu);
   free(z);
+
+  snprintf(message, MAX_MESSAGE_LENGTH, "INFO: leaving build_cubic_splines, numSplines = %d", numSplines);
+  error->message(FLERR, message);
 
   // Tell the caller how many splines we created
   return numSplines;
