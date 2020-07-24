@@ -152,7 +152,7 @@ class FixBocs : public Fix {
 
   int read_F_table(char *, int);
   int build_linear_splines(std::vector<std::vector<double>>);
-  int build_cubic_splinesEx(std::vector<std::vector<double>>);
+  int build_cubic_splines(std::vector<std::vector<double>>);
 
   virtual void nve_x();            // may be overwritten by child classes
   virtual void nve_v();
