@@ -750,11 +750,6 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
       snprintf(message, MAX_MESSAGE_LENGTH, "INFO: total number bad volume intervals = %d", numBadVolumeIntervals);
       error->message(FLERR, message);
     }
-
-    // Apply vector memory cleaning hack.
-    // See comments at bottom of this method for explanation.
-    std::vector<std::string>().swap(inputLines);
-
   }
   else {
     char errmsg[MAX_MESSAGE_LENGTH];
@@ -786,26 +781,6 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
              p_basis_type);
     error->all(FLERR,message);
   }
-
-  // 2020-07-17 -- valgrind shows a huge number of "still reachable"
-  // blocks after the code above runs. According to valgrind, those blocks
-  // are not lost memory but simply memory maintained by the stl vector code.
-  // The stl holds on to pools of its own memory, often
-  // until process shutdown, in case it needs to re-use it
-  // for more vectors. It's an optimization thing.
-  // This trick is said to force the blocks to be released.
-  // https://prateekvjoshi.com/2013/10/20/c-vector-memory-release/
-  // And it certainly works to eliminate the still reacheable messages
-  // in valgrind. But, does it make sense to do since it
-  // simply makes an apparent problem go away at the cost of
-  // doing a bit more work?
-  // Need to decide to either keep this active, if we think the
-  // clean valgrind report is a virtue, or leave it here, commented
-  // out, in case anyone else needs it later to clean up
-  // valgrind output because they are working on something else.
-  std::vector<double>().swap(volumeVec);
-  std::vector<double>().swap(pressureVec);
-  std::vector<std::vector<double>>().swap(data);
 
   return numEntries;
 }
