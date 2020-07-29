@@ -38,6 +38,7 @@
 #include "neighbor.h"
 #include "respa.h"
 #include "update.h"
+#include "fmt/format.h"
 
 
 using namespace LAMMPS_NS;
@@ -57,6 +58,11 @@ static const char cite_user_bocs_package[] =
 
 #define DELTAFLIP 0.1
 #define TILTMAX 1.5
+
+// The only thing ugly about std::vector is the declaration statement
+// Make it more friendly in the body of the code with a typedef here
+typedef std::vector<double> DblVector;
+
 
 enum{NOBIAS,BIAS};
 enum{NONE,XYZ,XY,YZ,XZ};
@@ -217,10 +223,9 @@ FixBocs::FixBocs(LAMMPS *lmp, int narg, char **arg) :
         spline_length = read_F_table( arg[iarg+1], p_basis_type );
         iarg += 2;
       }  else {
-        char errmsg[256];
-        snprintf(errmsg,256,"CG basis type %s is not recognized\nSupported "
-                 "basis types: analytic linear_spline cubic_spline",arg[iarg]);
-        error->all(FLERR,errmsg);
+        std::string errmsg = fmt::format("CG basis type {} is not recognized\nSupported "
+                                         "basis types: analytic linear_spline cubic_spline",arg[iarg]);
+        error->all(FLERR,errmsg.c_str());
       } // END NJD MRD
     } else if (strcmp(arg[iarg],"tchain") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix bocs command");
@@ -251,10 +256,9 @@ FixBocs::FixBocs(LAMMPS *lmp, int narg, char **arg) :
       if (nc_pchain < 0) error->all(FLERR,"Illegal fix bocs command");
       iarg += 2;
     } else {
-      char errmsg[128];
-      snprintf(errmsg,128,"Illegal fix bocs command: unrecognized keyword %s"
-               ,arg[iarg]);
-      error->all(FLERR,errmsg);
+      std::string errmsg = fmt::format("Illegal fix bocs command: unrecognized keyword {}",
+              arg[iarg]);
+      error->all(FLERR,errmsg.c_str());
     }
   }
   // error checks
@@ -637,12 +641,9 @@ void FixBocs::init()
 // NJD MRD 2 functions
 int FixBocs::read_F_table( char *filename, int p_basis_type )
 {
-  // NB: Keep your messages (error, warning, message) shorter than 255 chars
-  char message[MAX_MESSAGE_LENGTH+1];
-
-  std::vector<double> volumeVec;
-  std::vector<double> pressureVec;
-  std::vector<std::vector<double>> data;
+  DblVector volumeVec;
+  DblVector pressureVec;
+  std::vector<DblVector> data;
 
   bool badInput = false;
   int numEntries = 0;
@@ -654,9 +655,8 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
     // through the file.
     // NB: LAMMPS coding guidelines prefer cstdio so we are intentionally
     // foregoing  reading with getline
-    snprintf(message, MAX_MESSAGE_LENGTH, "INFO: About to read data file: %s",
-             filename);
-    error->message(FLERR, message);
+    std::string message = fmt::format("INFO: About to read data file: {}", filename);
+    error->message(FLERR, message.c_str());
 
     // Data file lines hold two floating point numbers.
     // Line length we allocate should be long enough without being too long.
@@ -670,8 +670,8 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
     fclose(fpi);
 
     numEntries = inputLines.size();
-    snprintf(message,MAX_MESSAGE_LENGTH,"INFO: Read %d lines from file", numEntries);
-    error->message(FLERR, message);
+    message = fmt::format("INFO: Read {} lines from file", numEntries);
+    error->message(FLERR, message.c_str());
 
 
     // Initializing the size of vectors is not required.
@@ -701,30 +701,29 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
       test_sscanf = sscanf(inputLines.at(i).c_str()," %f , %f ",&f1, &f2);
       if (test_sscanf == 2)
       {
-        //snprintf(message,MAX_MESSAGE_LENGTH, "f1 = %f, f2 = %f", f1, f2);
-        //error->message(FLERR,message);
+        //message = fmt::format("INFO: f1 = {}, f2 = {}", f1, f2);
+        //error->message(FLERR,message.c_str());
         data[VOLUME][i] = (double)f1;
         data[PRESSURE_CORRECTION][i] = (double)f2;
         if (i == 1)
         {
           // second entry is used to compute the validation interval used below
           stdVolumeInterval = data[VOLUME][i] - data[VOLUME][i-1];
-          //snprintf(message,MAX_MESSAGE_LENGTH, "INFO: standard volume interval computed: %f", stdVolumeInterval);
-          //error->message(FLERR,message);
+          //message = fmt::format("INFO: standard volume interval computed: {}", stdVolumeInterval);
+          //error->message(FLERR,message.c_str());
         }
         else if (i > 1)
         {
           // after second entry, all intervals are validated
           currVolumeInterval = data[VOLUME][i] - data[VOLUME][i-1];
-          //snprintf(message,MAX_MESSAGE_LENGTH, "INFO: current volume interval: %f", currVolumeInterval);
-          //error->message(FLERR,message);
+          //message = fmt::format("INFO: current volume interval: {}", currVolumeInterval);
+          //error->message(FLERR,message.c_str());
           if (fabs(currVolumeInterval - stdVolumeInterval) > volumeIntervalTolerance) {
-            snprintf(message,MAX_MESSAGE_LENGTH,
-                     "BAD VOLUME INTERVAL: spline analysis requires uniform"
-                     " volume distribution, found inconsistent volume"
-                     " differential, line %d of file %s\n\tline: %s",
-                     lineNum,filename,inputLines.at(i).c_str());
-            error->message(FLERR,message);
+            message = fmt::format("ERROR: Bad volume interval. Spline analysis requires uniform"
+                    " volume distribution, found inconsistent volume"
+                    " differential, line {} of file {}\n\tline: {}",
+                    lineNum,filename,inputLines.at(i).c_str());
+            error->message(FLERR,message.c_str());
             badInput = true;
             numBadVolumeIntervals++;
           }
@@ -733,11 +732,10 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
       }
       else
       {
-        snprintf(message,MAX_MESSAGE_LENGTH,
-                 "BAD INPUT FORMAT: did not find 2 comma separated numeric"
-                 " values in line %d of file %s\n\tline: %s",
+        message = fmt::format("ERROR: Bad input format: did not find 2 comma separated numeric"
+                 " values in line {} of file {}\n\tline: {}",
                  lineNum, filename, inputLines.at(i).c_str());
-        error->message(FLERR,message);
+        error->message(FLERR,message.c_str());
         badInput = true;
       }
       if (badInput)
@@ -747,21 +745,18 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
     }
 
     if (numBadVolumeIntervals) {
-      snprintf(message, MAX_MESSAGE_LENGTH, "INFO: total number bad volume intervals = %d", numBadVolumeIntervals);
-      error->message(FLERR, message);
+      message = fmt::format("INFO: total number bad volume intervals = {}", numBadVolumeIntervals);
+      error->message(FLERR,message.c_str());
     }
   }
   else {
-    char errmsg[MAX_MESSAGE_LENGTH];
-    snprintf(errmsg,MAX_MESSAGE_LENGTH,"Unable to open file: %s\n",filename);
-    error->all(FLERR,errmsg);
+    std::string errmsg = fmt::format("ERROR: Unable to open file: {}", filename);
+    error->all(FLERR,errmsg.c_str());
   }
 
   if (badInput) {
-    char errmsg[MAX_MESSAGE_LENGTH];
-    snprintf(errmsg,MAX_MESSAGE_LENGTH,
-             "Bad volume / pressure-correction data: %s\nSee details above",filename);
-    error->all(FLERR,errmsg);
+    std::string errmsg = fmt::format("Bad volume / pressure-correction data: {}\nSee details above", filename);
+    error->message(FLERR,errmsg.c_str());
   }
 
   if (p_basis_type == BASIS_LINEAR_SPLINE)
@@ -776,19 +771,17 @@ int FixBocs::read_F_table( char *filename, int p_basis_type )
   }
   else
   {
-    snprintf(message,MAX_MESSAGE_LENGTH,
-             "ERROR: invalid p_basis_type value of %d in read_F_table",
-             p_basis_type);
-    error->all(FLERR,message);
+    std::string errmsg = fmt::format("ERROR: invalid p_basis_type value of {} in read_F_table", p_basis_type);
+    error->all(FLERR,errmsg.c_str());
   }
 
   return numEntries;
 }
 
 int FixBocs::build_linear_splines( std::vector<std::vector<double>> data ) {
-  char message[MAX_MESSAGE_LENGTH + 1];
-  //snprintf(message, MAX_MESSAGE_LENGTH, "INFO: entering build_linear_splines, spline_length = %d", spline_length);
-  //error->message(FLERR, message);
+  std::string message;
+  //message = fmt::format("INFO: entering build_linear_splines, spline_length = {}", spline_length);
+  //error->message(FLERR, message.c_str());
 
   splines = (double **) calloc(NUM_LINEAR_SPLINE_COLUMNS,sizeof(double *));
   splines[VOLUME] = (double *) calloc(spline_length,sizeof(double));
@@ -800,34 +793,35 @@ int FixBocs::build_linear_splines( std::vector<std::vector<double>> data ) {
     splines[PRESSURE_CORRECTION][idxb] = data[PRESSURE_CORRECTION][idxb];
   }
 
-  snprintf(message, MAX_MESSAGE_LENGTH, "INFO: leaving build_linear_splines, spline_length = %d", spline_length);
-  error->message(FLERR, message);
+  message = fmt::format("INFO: leaving build_linear_splines, spline_length = {}", spline_length);
+  error->message(FLERR, message.c_str());
 
   return spline_length;
 }
 
-  int FixBocs::build_cubic_splines(std::vector<std::vector<double>> data )
+int FixBocs::build_cubic_splines(std::vector<std::vector<double>> data )
 {
-  char message[MAX_MESSAGE_LENGTH+1];
-  //snprintf(message, MAX_MESSAGE_LENGTH, "INFO: entering build_cubic_splines, spline_length = %d", spline_length);
-  //error->message(FLERR, message);
+  std::string message;
+  //message = fmt::format("INFO: entering build_cubic_splines, spline_length = {}", spline_length);
+  //error->message(FLERR, message.c_str());
 
-  double *a, *b, *d, *h, *alpha, *c, *l, *mu, *z;
   int n = spline_length;
   // 2020-07-17 ag:
   // valgrind says that we read/write a[n] down in the
   // for(int j=n-1; j>=0; j--) loop below
-  // and I agree. So we have to allocate enough memory for that.
-  // OR we should change the j loop start below to j=n-2.
-  a = (double *) calloc(n+1,sizeof(double));
-  b = (double *) calloc(n+1,sizeof(double));
-  c = (double *) calloc(n+1,sizeof(double));
-  d = (double *) calloc(n+1,sizeof(double));
-  h = (double *) calloc(n,sizeof(double));
-  alpha = (double *) calloc(n,sizeof(double));
-  l = (double *) calloc(n,sizeof(double));
-  mu = (double *) calloc(n,sizeof(double));
-  z = (double *) calloc(n,sizeof(double));
+  // and I agree.
+  // So the size of a must be n+1, not n as was found
+  // in the original code.
+  DblVector a(n+1);
+  DblVector b(n+1);
+  DblVector c(n+1);
+  DblVector d(n+1);
+
+  DblVector h(n);
+  DblVector alpha(n);
+  DblVector l(n);
+  DblVector mu(n);
+  DblVector z(n);
 
   for (int i=0; i<n; i++)
   {
@@ -895,19 +889,8 @@ int FixBocs::build_linear_splines( std::vector<std::vector<double>> data ) {
     numSplines++;
   }
 
-  // What goes up must come down. What we calloc, we must free
-  free(a);
-  free(b);
-  free(c);
-  free(d);
-  free(h);
-  free(alpha);
-  free(l);
-  free(mu);
-  free(z);
-
-  snprintf(message, MAX_MESSAGE_LENGTH, "INFO: leaving build_cubic_splines, numSplines = %d", numSplines);
-  error->message(FLERR, message);
+  message = fmt::format("INFO: leaving build_cubic_splines, numSplines = {}", numSplines);
+  error->message(FLERR, message.c_str());
 
   // Tell the caller how many splines we created
   return numSplines;

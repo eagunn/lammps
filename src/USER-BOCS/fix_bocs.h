@@ -181,6 +181,10 @@ Self-explanatory.  Check the input script syntax and compare to the
 documentation for the command.  You can use -echo screen as a
 command-line option when running LAMMPS to see the offending line.
 
+E: CG basis type XXX is not recognized
+
+See second line of message for supported basis types.
+
 E: Target temperature for fix bocs cannot be 0.0
 
 Self-explanatory.
